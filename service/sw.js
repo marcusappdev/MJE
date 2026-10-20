@@ -6,12 +6,15 @@
    Microsoft sign-in and SharePoint (Graph) calls are never cached.
    No register data is stored here — the app keeps its own job copy.
    ===================================================================== */
-const CACHE = "mje-service-v1";
+// One cache per installed copy (MJE, a demo copy …) so they never clear each other's files
+const SCOPE = self.registration.scope;                               // …/service/
+const SHARED = new URL("../shared/", SCOPE).pathname, OWN = new URL(SCOPE).pathname;
+const CACHE_BASE = "mje-service:" + OWN + ":", CACHE = CACHE_BASE + "v1";
 const NEVER = /(^|\.)(graph\.microsoft\.com|login\.microsoftonline\.com|sharepoint\.com)$/i;
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", e => e.waitUntil((async () => {
-  for (const k of await caches.keys()) if (k.startsWith("mje-service-") && k !== CACHE) await caches.delete(k);
+  for (const k of await caches.keys()) if ((k.startsWith(CACHE_BASE) || (k.startsWith("mje-service-") && OWN.startsWith("/MJE/"))) && k !== CACHE) await caches.delete(k);
   await self.clients.claim();
 })()));
 
@@ -21,7 +24,7 @@ self.addEventListener("fetch", e => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== "GET" || NEVER.test(url.hostname)) return;
   const isPage = req.mode === "navigate";
-  const isAsset = url.origin === self.location.origin ? /\/MJE\/(shared|service)\//.test(url.pathname)
+  const isAsset = url.origin === self.location.origin ? (url.pathname.startsWith(SHARED) || url.pathname.startsWith(OWN))
     : /^(cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com)$/.test(url.hostname);
   if (!isPage && !isAsset) return;
   const key = isPage ? new Request(url.origin + url.pathname) : req;          // one copy of the page, whatever the query

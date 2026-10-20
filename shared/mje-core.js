@@ -10,6 +10,31 @@
 /* ---------------- where things live ---------------- */
 const MJE_SHARED = new URL(".", document.currentScript.src).href;    // .../MJE/shared/
 const MJE_ROOT   = new URL("..", MJE_SHARED).href;                     // .../MJE/
+/* ---------------- company branding and list names (from MJE_BRAND in mje-config.js) ---------------- */
+const BRAND = (() => {
+  const b = Object.assign({ COMPANY:"MJ Electrical", SHORT:"MJE", TAGLINE:"", LIST_PREFIX:"MJE_",
+    LOGO:"mje-logo.png", LOGO_FULL:"mje-logo-full.png", ICON:"mje-icon.png" }, typeof MJE_BRAND === "object" ? MJE_BRAND : {});
+  b.OFFICE_GROUP ||= b.SHORT + " Office";
+  if (b.STORE_TAG == null) b.STORE_TAG = (MJE_TENANT.SP_HOST + MJE_TENANT.SITE_PATH).toLowerCase();
+  b.LOGO_URL = MJE_SHARED + b.LOGO;
+  b.LOGO_FULL_URL = MJE_SHARED + b.LOGO_FULL;
+  return b;
+})();
+// { inc:"Incidents", … } -> { inc:"MJE_Incidents", … }
+const mjeLists = names => Object.fromEntries(Object.entries(names).map(([k, v]) => [k, BRAND.LIST_PREFIX + v]));
+// Storage key for this site's data in the browser ("" tag keeps the original key)
+const mjeStoreKey = key => BRAND.STORE_TAG ? `${key}|${BRAND.STORE_TAG}` : key;
+// Full logo for sign-in pages and printouts
+const mjeLogoFull = (withTagline = false) =>
+  `<img src="${esc(BRAND.LOGO_FULL_URL)}" alt="${esc(BRAND.COMPANY + (withTagline && BRAND.TAGLINE ? " — " + BRAND.TAGLINE : ""))}">`;
+// Page title, tab icon and header logo.  Call once the page has loaded.
+function mjeApplyBrand(appName){
+  document.title = `${BRAND.SHORT} ${appName}`;
+  const icon = document.querySelector('link[rel="icon"]'); if (icon) icon.href = MJE_SHARED + BRAND.ICON;
+  document.querySelectorAll("img[data-brand]").forEach(img => {
+    img.src = img.dataset.brand === "full" ? BRAND.LOGO_FULL_URL : BRAND.LOGO_URL; img.alt = BRAND.COMPANY; });
+}
+
 const MJE_APPS = [
   { key:"safety",  name:"Safety Hub",  href: MJE_ROOT },
   { key:"service", name:"Service Hub", href: MJE_ROOT + "service/" },
@@ -35,16 +60,16 @@ const mjeApp = key => MJE_APPS.find(a => a.key === key);
 function mjeAppSwitcher(current){
   const list = MJE_APPS.filter(a => mjeAppAllowed(a.key));
   if (list.length < 2) return `<span id="apps"></span>`;
-  return `<div class="apps" id="apps" role="navigation" aria-label="MJE apps">${list.map(a =>
+  return `<div class="apps" id="apps" role="navigation" aria-label="${esc(BRAND.SHORT)} apps">${list.map(a =>
     `<a href="${a.href}" class="${a.key === current ? "on" : ""}"${a.key === current ? ' aria-current="page"' : ""}>${a.name}${mjeAppState(a.key) === "preview" ? '<span class="pv" title="Preview - only listed people can see this Hub">Preview</span>' : ""}</a>`).join("")}</div>`;
 }
 function mjeRenderApps(current){ const el = document.getElementById("apps"); if (el) el.outerHTML = mjeAppSwitcher(current); }
 // Page shown when a Hub is switched off (or in preview and this person isn't listed)
 function mjeUnavailable(key){
   const me = mjeApp(key), other = MJE_APPS.filter(a => a.key !== key && mjeAppAllowed(a.key));
-  return `<div class="card signin"><div class="full"><img src="${MJE_SHARED}mje-logo-full.png" alt="MJ Electrical"></div>
+  return `<div class="card signin"><div class="full">${mjeLogoFull()}</div>
     <h2>${esc(me?.name || "This Hub")} isn't available yet</h2>
-    <p>The MJE office hasn't switched it on. Please check back later.</p>
+    <p>The ${esc(BRAND.SHORT)} office hasn't switched it on. Please check back later.</p>
     ${other.map(a => `<a class="btn primary" href="${a.href}">Go to the ${esc(a.name)}</a>`).join(" ")}</div>`;
 }
 
