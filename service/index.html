@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MJE Service Hub</title>
+<title>Service Hub</title>
 <link rel="icon" type="image/png" href="../shared/mje-icon.png">
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js"></script>
-<link rel="stylesheet" href="../shared/mje.css?v=20261005">
+<link rel="stylesheet" href="../shared/mje.css?v=20261020">
 <style>
 /* Service Hub only — everything shared with the Safety Hub is in ../shared/mje.css */
 .rolepill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:1px 6px;color:#fff}
@@ -144,21 +144,21 @@ main.tech .card{margin-bottom:12px}main.tech .empty{padding:10px 6px}.mysec .cou
 </head>
 <body>
 <header>
-  <div class="logo"><span class="chip"><img src="../shared/mje-logo.png" alt="MJ Electrical"></span><span id="apps"></span></div>
+  <div class="logo"><span class="chip"><img data-brand="logo" alt=""></span><span id="apps"></span></div>
   <nav id="nav" hidden></nav>
   <div class="who" id="who"></div>
 </header>
 <main id="main"><div class="empty">Loading…</div></main>
 
 <dialog id="dlg"><form method="dialog" id="frm" novalidate>
-  <div class="dh"><span class="dlg-logo"><img id="dlgLogo" alt="MJ Electrical"></span><div class="dt"><span class="kind" id="dlgKind"></span><h2 id="dlgTitle"></h2></div><button type="button" class="btn" id="dlgX" aria-label="Close">✕</button></div>
+  <div class="dh"><span class="dlg-logo"><img id="dlgLogo" alt=""></span><div class="dt"><span class="kind" id="dlgKind"></span><h2 id="dlgTitle"></h2></div><button type="button" class="btn" id="dlgX" aria-label="Close">✕</button></div>
   <div class="db" id="dlgBody"></div>
   <div class="df"><button type="button" class="btn" id="dlgCancel">Cancel</button><button type="submit" class="btn primary" id="dlgSave">Save</button></div>
 </form></dialog>
 <div class="toast" id="toast"></div>
 
-<script src="../shared/mje-config.js?v=20261005"></script>
-<script src="../shared/mje-core.js?v=20261005"></script>
+<script src="../shared/mje-config.js?v=20261020"></script>
+<script src="../shared/mje-core.js?v=20261020"></script>
 <script>
 /* =====================================================================
    MJE Service Hub — quote → job → schedule → field completion → invoice
@@ -168,16 +168,17 @@ main.tech .card{margin-bottom:12px}main.tech .empty{padding:10px 6px}.mysec .cou
    ===================================================================== */
 const CONFIG = {
   ...MJE_TENANT,
-  LISTS: {
-    customers:"MJE_Customers", sites:"MJE_Sites", assets:"MJE_CustomerAssets",
-    quotes:"MJE_Quotes", qlines:"MJE_QuoteLines",
-    jobs:"MJE_Jobs", assign:"MJE_JobAssignments", time:"MJE_TimeEntries", mat:"MJE_JobMaterials", notes:"MJE_JobNotes",
-    comp:"MJE_JobCompletions", chk:"MJE_Checklists", resp:"MJE_ChecklistResponses", files:"MJE_JobFiles",
-    inv:"MJE_Invoices", iline:"MJE_InvoiceLines", pay:"MJE_InvoicePayments", sync:"MJE_MyobSync",
-    rates:"MJE_LabourRates", settings:"MJE_ServiceSettings", numbers:"MJE_ServiceNumbers",
+  // List names = BRAND.LIST_PREFIX (mje-config.js) + these, e.g. MJE_Customers
+  LISTS: mjeLists({
+    customers:"Customers", sites:"Sites", assets:"CustomerAssets",
+    quotes:"Quotes", qlines:"QuoteLines",
+    jobs:"Jobs", assign:"JobAssignments", time:"TimeEntries", mat:"JobMaterials", notes:"JobNotes",
+    comp:"JobCompletions", chk:"Checklists", resp:"ChecklistResponses", files:"JobFiles",
+    inv:"Invoices", iline:"InvoiceLines", pay:"InvoicePayments", sync:"MyobSync",
+    rates:"LabourRates", settings:"ServiceSettings", numbers:"ServiceNumbers",
     // Safety Hub lists the Service Hub reads
-    staff:"MJE_Staff", trn:"MJE_Training", course:"MJE_Courses", tt:"MJE_TestTag", risk:"MJE_Risks", inc:"MJE_Incidents",
-  },
+    staff:"Staff", trn:"Training", course:"Courses", tt:"TestTag", risk:"Risks", inc:"Incidents",
+  }),
   // Sign-in asks only for what the Safety Hub already has; Mail.Send.Shared is requested when a quote/invoice is first emailed.
   SCOPES: ["Sites.ReadWrite.All", "User.Read"],
 };
@@ -340,7 +341,7 @@ const missingFor = keys => keys.filter(k => !S.have.has(CONFIG.LISTS[k]));
 function notSetUp(keys){
   const m = missingFor(keys); if (!m.length) return "";
   return `<div class="banner err">These SharePoint lists aren't set up yet: <b>${m.map(k => esc(CONFIG.LISTS[k])).join(", ")}</b>.<br>
-    Run the setup kit (Setup-MJE-Hub.ps1, steps 10–13) on ${esc(CONFIG.SP_HOST + CONFIG.SITE_PATH)}, then refresh this page.</div>`;
+    Run the setup kit (steps 10–13) on ${esc(CONFIG.SP_HOST + CONFIG.SITE_PATH)}, then refresh this page.</div>`;
 }
 function render(){
   renderHeader();
@@ -355,7 +356,7 @@ function render(){
     need(keys, ROUTES[route].soft).then(async () => { if (route === "my") await replayQueue(); if (S.route === route) render(); })
       .catch(async e => {
         if (route === "my" && isNetErr(e) && loadSnapshot(false)) { await replayQueue(); return render(); }    // no signal: use the copy on this phone
-        $("#main").innerHTML = banner + `<div class="banner err">${isForbidden(e) ? "You don't have access to some of the Service Hub lists. Ask an MJE site owner to add you to the MJE Office group." : isNetErr(e) ? "No connection — couldn't reach SharePoint. Try again when you have signal." : "Couldn't load data from SharePoint: " + esc(e.message)}</div>`; });
+        $("#main").innerHTML = banner + `<div class="banner err">${isForbidden(e) ? `You don't have access to some of the Service Hub lists. Ask a ${esc(BRAND.SHORT)} site owner to add you to the ${esc(BRAND.OFFICE_GROUP)} group.` : isNetErr(e) ? "No connection — couldn't reach SharePoint. Try again when you have signal." : "Couldn't load data from SharePoint: " + esc(e.message)}</div>`; });
     return;
   }
   const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, my:viewMy }[S.route] || viewNoAccess;
@@ -416,7 +417,7 @@ function viewDash(){
   </div>
   ${noRate ? `<div class="banner">${Math.round(noRate * 10) / 10} billable hour${noRate === 1 ? "" : "s"} on completed jobs ha${noRate === 1 ? "s" : "ve"} no matching labour rate, so ${noRate === 1 ? "it isn't" : "they aren't"} in the "Ready to invoice" value. Check the labour rate codes in Settings.</div>` : ""}
   ${empty ? `<div class="card" style="margin-bottom:14px"><h3>Getting started</h3><ol style="margin:0;padding-left:20px;line-height:1.8">
-      <li>In <a href="#/settings/roles"><b>Settings → Staff &amp; roles</b></a>, set each person's M365 email and Service Hub role, and put office staff in the <b>MJE Office</b> group.</li>
+      <li>In <a href="#/settings/roles"><b>Settings → Staff &amp; roles</b></a>, set each person's M365 email and Service Hub role, and put office staff in the <b>${esc(BRAND.OFFICE_GROUP)}</b> group.</li>
       <li>Add labour rates, markup and company details in <b>Settings</b>.</li>
       <li>Add customers and their sites in <b>Customers &amp; Sites</b>.</li>
       <li>Raise a <b>quote</b>, or create a <b>job</b> straight away, then book it in the <b>Scheduler</b>.</li></ol>
@@ -460,7 +461,7 @@ let QDB = null, QMEM = null, FLUSHING = false, FLUSH_T = null;
 function qOpen(){
   if (QMEM) return Promise.resolve(null);
   return QDB ||= new Promise(res => {
-    try { const r = indexedDB.open("mje-service", 1);
+    try { const r = indexedDB.open(mjeStoreKey("mje-service"), 1);
       r.onupgradeneeded = () => r.result.createObjectStore("queue", { keyPath:"qid", autoIncrement:true });
       r.onsuccess = () => res(r.result); r.onerror = () => { QMEM = []; res(null); }; }
     catch { QMEM = []; res(null); }
@@ -504,7 +505,7 @@ async function sendOp(op){
   if (found) return found;                                             // already there from an earlier try
   if (op.file?.blob){
     if (JOB_DRIVE === undefined) JOB_DRIVE = await libraryDrive(CONFIG.LISTS.files);
-    if (!JOB_DRIVE) throw Object.assign(new Error("the MJE_JobFiles library isn't set up"), { status:404 });
+    if (!JOB_DRIVE) throw Object.assign(new Error(`the ${CONFIG.LISTS.files} library isn't set up`), { status:404 });
     const up = await uploadToDrive(JOB_DRIVE, op.file.folder, op.file.name, op.file.blob, op.file.type || "image/jpeg");
     f[op.file.field] = up.webUrl;
   }
@@ -560,7 +561,7 @@ async function openSyncPanel(){
 }
 
 /* ---------- jobs kept on the phone for offline use ---------- */
-const SNAP_KEY = () => "mjeSvcSnap:" + myUser();
+const SNAP_KEY = () => mjeStoreKey("mjeSvcSnap:" + myUser());
 const clean = rows => (rows || []).filter(r => !r._pending).map(({ _thumb, ...r }) => r);
 function saveSnapshot(){
   if (DEMO || S.viewAs || effRole() !== "Technician" || !MY_LOAD.every(k => D[k])) return;
@@ -593,7 +594,7 @@ async function replayQueue(){
 }
 
 /* ---------- timer + GPS ---------- */
-const TIMER_KEY = () => "mjeTimer:" + myUser();
+const TIMER_KEY = () => mjeStoreKey("mjeTimer:" + myUser());
 const getTimer = () => { try { return JSON.parse(localStorage.getItem(TIMER_KEY()) || "null"); } catch { return null; } };
 const setTimer = t => { try { t ? localStorage.setItem(TIMER_KEY(), JSON.stringify(t)) : localStorage.removeItem(TIMER_KEY()); } catch {} };
 const elapsed = t => { const m = Math.max(0, Math.round((Date.now() - t.ts) / 60000)); return `${Math.floor(m / 60)}:${pad(m % 60)}`; };
@@ -907,11 +908,11 @@ function bindMy(){
 setInterval(() => document.querySelectorAll(".tel[data-ts]").forEach(el => el.textContent = elapsed({ ts:+el.dataset.ts })), 20000);
 
 function viewNoAccess(){
-  const why = { nomatch:`Your Microsoft 365 account (<b>${esc(account?.username || "")}</b>) isn't linked to anyone in the MJE staff list yet.`,
-                norole:`You're in the MJE staff list as <b>${esc(S.me?.Title || "")}</b>, but no Service Hub role has been set for you.`,
+  const why = { nomatch:`Your Microsoft 365 account (<b>${esc(account?.username || "")}</b>) isn't linked to anyone in the ${esc(BRAND.SHORT)} staff list yet.`,
+                norole:`You're in the ${esc(BRAND.SHORT)} staff list as <b>${esc(S.me?.Title || "")}</b>, but no Service Hub role has been set for you.`,
                 staff:`Your Service Hub role is set to <b>None</b>.` }[S.roleSource] || "";
   return `<div class="card signin"><h2>Service Hub access</h2><p>${why}</p>
-    <p>Ask the MJE office to add your sign-in email and a <b>Service Hub Role</b> (Technician or Office) to your staff record, then refresh.</p>
+    <p>Ask the ${esc(BRAND.SHORT)} office to add your sign-in email and a <b>Service Hub Role</b> (Technician or Office) to your staff record, then refresh.</p>
     ${mjeAppAllowed("safety") ? `<a class="btn" href="${MJE_ROOT}">Go to the Safety Hub</a>` : ""}</div>`;
 }
 function viewSettings(){
@@ -926,19 +927,19 @@ function viewSettings(){
     <div class="card"><h3>You</h3><dl class="kv">
       <dt>Signed in as</dt><dd>${esc(account?.name || "")} <span class="count">${esc(account?.username || "")}</span></dd>
       <dt>Staff record</dt><dd>${S.me ? esc(S.me.Title) : `<span class="pill p-warn">No match on M365 Email</span>`}</dd>
-      <dt>Service Hub role</dt><dd><b>${esc(S.role)}</b> <span class="count">${{ staff:"from MJE_Staff", setup:"first-run set-up (no office roles yet)", demo:"demo" }[S.roleSource] || ""}</span></dd></dl>
+      <dt>Service Hub role</dt><dd><b>${esc(S.role)}</b> <span class="count">${{ staff:"from " + CONFIG.LISTS.staff, setup:"first-run set-up (no office roles yet)", demo:"demo" }[S.roleSource] || ""}</span></dd></dl>
       ${S.role === "Admin" || S.role === "Office" ? `<div class="bar" style="margin:14px 0 0"><select class="f" id="viewAsName"><option value="">Pick a technician…</option>${techs.map(t => `<option>${esc(t)}</option>`).join("")}</select>
         <button class="btn" id="viewAs">See the technician view</button></div>` : ""}</div>
     <div class="card"><h3>Staff roles</h3><dl class="kv">
       <dt>Active staff</dt><dd>${staff.length}</dd><dt>With M365 email</dt><dd>${withEmail} of ${staff.length} <span class="count">· leave it blank for staff with no Microsoft 365 account — the office enters their work</span></dd>
       <dt>With a Service Hub role</dt><dd>${withRole}</dd><dt>Technicians</dt><dd>${techs.length}</dd></dl>
-      <p class="count" style="margin-top:12px">Set these in <b>Staff &amp; roles</b> below. The role only picks which screens open — SharePoint groups (Owners, MJE Office, Visitors) still decide what each person can change.</p></div>
+      <p class="count" style="margin-top:12px">Set these in <b>Staff &amp; roles</b> below. The role only picks which screens open — SharePoint groups (Owners, ${esc(BRAND.OFFICE_GROUP)}, Visitors) still decide what each person can change.</p></div>
   </div>
   ${companySettings()}
   ${ratesTable()}
   ${rolesEditor()}
   <div class="bar" style="margin-top:22px"><h2>SharePoint set-up</h2><span class="grow"></span><span class="count">${ready} of ${service.length} Service Hub lists ready</span></div>
-  ${ready < service.length ? `<div class="banner">Run Setup-MJE-Hub.ps1 (steps 10–16) on ${esc(CONFIG.SP_HOST + CONFIG.SITE_PATH)} to create the missing lists, then refresh.</div>` : ""}
+  ${ready < service.length ? `<div class="banner">Run the setup kit (steps 10–16) on ${esc(CONFIG.SP_HOST + CONFIG.SITE_PATH)} to create the missing lists, then refresh.</div>` : ""}
   <div class="grid two">
     <div class="tablewrap"><table class="setup"><thead><tr><th>Service Hub list</th><th>Holds</th><th>Status</th></tr></thead><tbody>${service.map(row).join("")}</tbody></table></div>
     <div class="tablewrap" style="align-self:start"><table class="setup"><thead><tr><th>Safety Hub list</th><th>Used for</th><th>Status</th></tr></thead><tbody>${SAFETY_KEYS.map(row).join("")}</tbody></table></div>
@@ -952,13 +953,13 @@ function rolesEditor(){
   const staff = [...S.staff].filter(s => s.StaffStatus !== "Left").sort((a, b) => (a.Department || "").localeCompare(b.Department || "") || a.Title.localeCompare(b.Title));
   return `<div class="bar" id="roles" style="margin-top:22px"><h2>Staff &amp; roles</h2><span class="grow"></span><span class="count" id="rolesDirty"></span><button class="btn primary" id="saveRoles" disabled>Save changes</button></div>
   <p class="count" style="margin:-6px 0 12px"><b>M365 email</b> is the address the person signs in with — leave it blank for staff without a Microsoft 365 account (the office enters their time and sign-offs).
-    <b>Technician</b> opens My Jobs on the phone; <b>Office</b> and <b>Admin</b> open the office screens (Admin will also edit Settings). Only MJE site owners can save changes here.
+    <b>Technician</b> opens My Jobs on the phone; <b>Office</b> and <b>Admin</b> open the office screens (Admin will also edit Settings). Only ${esc(BRAND.SHORT)} site owners can save changes here.
     Staff are added in the Safety Hub (Training → Staff), which has the same fields.</p>
   <div class="tablewrap"><table class="setup roles"><thead><tr><th>Name</th><th>Position</th><th>Department</th><th>M365 email (sign-in)</th><th>Service Hub role</th></tr></thead><tbody>
   ${staff.map(s => `<tr data-sid="${esc(s.id)}"${s === S.me ? ' class="me"' : ""}><td><b>${esc(s.Title)}</b>${s === S.me ? ` <span class="pill p-info">you</span>` : ""}</td><td>${esc(s.Position || "")}</td><td>${esc(s.Department || "")}</td>
     <td><input type="email" data-k="Email" value="${esc(s.Email || "")}" placeholder="name@company" autocomplete="off"></td>
     <td><select data-k="HubRole">${HUB_ROLES.map(([v, l]) => `<option value="${v}" ${(s.HubRole || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td></tr>`).join("")}
-  </tbody></table>${staff.length ? "" : `<div class="empty">No active staff in MJE_Staff</div>`}</div>`;
+  </tbody></table>${staff.length ? "" : `<div class="empty">No active staff in ${esc(CONFIG.LISTS.staff)}</div>`}</div>`;
 }
 let rolesWarned = false;
 function bindRoles(){
@@ -988,7 +989,7 @@ function bindRoles(){
       catch(e){ console.warn("Couldn't save", s.Title, e.message); if (isForbidden(e)) { denied = true; break; } }
     }
     [S.role, S.roleSource] = resolveRole(); readHash(); render();
-    toast(denied ? "Only MJE site owners can change staff roles — ask an owner, or add you to the site Owners group." : `Saved ${ok} change${ok === 1 ? "" : "s"}${ok < todo.length ? ` — ${todo.length - ok} couldn't be saved` : ""}`);
+    toast(denied ? `Only ${BRAND.SHORT} site owners can change staff roles — ask an owner to add you to the site Owners group.` : `Saved ${ok} change${ok === 1 ? "" : "s"}${ok < todo.length ? ` — ${todo.length - ok} couldn't be saved` : ""}`);
   };
 }
 
@@ -1047,7 +1048,7 @@ const FORMS = {
       ["RateEx","Rate (PGK, ex GST)","number",{req:1,min0:1}], ["RateUnit","Charged per","select",{opts:["Hour","Call-out","Fixed"],req:1}], ["MinChargeHours","Minimum charge (hours)","number",{min0:1}],
       ["RateStatus","Status","select",{opts:["Active","Retired"]}], ["SortOrder","Sort order (lower first)","number"] ]] ] },
 };
-const NO_PERMISSION = "You don't have permission to change this. Customers, sites, equipment and jobs are edited by the MJE office (the MJE Office group) and the site owners.";
+const NO_PERMISSION = `You don't have permission to change this. Customers, sites, equipment and jobs are edited by the ${BRAND.SHORT} office (the ${BRAND.OFFICE_GROUP} group) and the site owners.`;
 function fieldHtml([name, label, type, o = {}], v){
   const cls = `fld ${o.w === 3 ? "w3" : o.w === 2 ? "w2" : ""}`, lab = `<span class="${o.req ? "req" : ""}">${label}</span>`;
   const attrs = `name="${name}" ${o.req ? "required" : ""} ${o.ro ? "readonly tabindex=-1" : ""}`;
@@ -1315,7 +1316,7 @@ function viewCustomer(code){
     <td>${esc([x.Town, x.Province].filter(Boolean).join(", "))}</td><td>${esc(x.ContactName || "")}${x.ContactPhone ? `<br><span class="count">${esc(x.ContactPhone)}</span>` : ""}</td>
     <td class="mono">${D.assets.filter(a => a.SiteCode === x.SiteCode && a.AssetStatus !== "Decommissioned").length}</td><td class="mono">${openBySite.get(x.SiteCode) || ""}</td>
     <td>${x.SiteStatus === "Inactive" ? `<span class="pill p-grey">Inactive</span>` : `<span class="pill p-ok">Active</span>`}</td></tr>`).join("")}
-  </tbody></table>${sites.length ? "" : `<div class="empty">No sites yet — add the places MJE works for this customer with <b>+ New site</b></div>`}</div>
+  </tbody></table>${sites.length ? "" : `<div class="empty">No sites yet — add the places ${esc(BRAND.SHORT)} works for this customer with <b>+ New site</b></div>`}</div>
   <div class="bar" style="margin-top:22px"><h2>Job history</h2><span class="count">${jobs.length}</span></div>${jobsTable(jobs, true)}
   <div class="bar" style="margin-top:22px"><h2>Quotes</h2><span class="count">${quotes.length}</span></div>${quotesTable(quotes, true)}`;
 }
@@ -1366,7 +1367,7 @@ async function queueMyobLink(code){
   const item = { Title:`${code}-${Date.now().toString(36).toUpperCase()}`, EntityType:"Customer", EntityRef:code, SyncAction:"Link card", SyncStatus:"Awaiting MYOB", Attempts:0,
     RequestedBy: S.me?.Title || account?.name || "", Payload: JSON.stringify({ name:c.Title, email:c.Email || "", phone:c.Phone || "", address:c.BillingAddress || "", tin:c.TIN || "" }) };
   try { const saved = DEMO ? { id:"demo" + Date.now(), ...item } : await saveListItem(CONFIG.LISTS.sync, null, item); D.sync.push(saved); toast("Added to the MYOB queue"); render(); }
-  catch(e){ toast(isForbidden(e) ? "You don't have permission to use the MYOB queue — it's for the MJE office." : "Couldn't queue it: " + e.message); }
+  catch(e){ toast(isForbidden(e) ? `You don't have permission to use the MYOB queue — it's for the ${BRAND.SHORT} office.` : "Couldn't queue it: " + e.message); }
 }
 
 /* =====================================================================
@@ -1596,7 +1597,7 @@ async function saveQuoteLines(q){
 }
 async function setQuote(q, f, msg){
   try { if (!DEMO) await saveListItem(CONFIG.LISTS.quotes, q.id, f); Object.assign(q, f); render(); toast(msg); return true; }
-  catch(e){ toast(isForbidden(e) ? "You don't have permission to change quotes — they're for the MJE office." : "Couldn't save: " + e.message); return false; }
+  catch(e){ toast(isForbidden(e) ? `You don't have permission to change quotes — they're for the ${BRAND.SHORT} office.` : "Couldn't save: " + e.message); return false; }
 }
 function quoteReady(q){
   if (S.qe[q.Title]?.dirty){ toast("Save the lines first"); return false; }
@@ -1648,7 +1649,7 @@ function openConvert(q){
 // ---- print and PDF (same layout for both)
 function quotePrintHtml(q){
   const ls = quoteLines(q.Title), t = totalsOf(ls), c = D.customers.find(x => x.CustomerCode === q.CustomerCode), site = D.sites.find(x => x.SiteCode === q.SiteCode);
-  const co = setting("CompanyName", "MJ Electrical"), det = setting("CompanyDetails", "");
+  const co = setting("CompanyName", BRAND.COMPANY), det = setting("CompanyDetails", "");
   return `<div class="pq"><style>
   .pq{font:12px/1.45 "Segoe UI",Arial,sans-serif;color:#111;background:#fff;padding:6px 4px;width:100%}
   .pq-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:3px solid #f15838;padding-bottom:10px;margin-bottom:14px}
@@ -1669,7 +1670,7 @@ function quotePrintHtml(q){
   .pq-terms{margin-top:16px;font-size:10.5px;color:#333;page-break-inside:avoid}
   .pq-foot{margin-top:14px;font-size:10px;color:#777;text-align:center}
   </style>
-  <div class="pq-head"><img src="${MJE_SHARED}mje-logo-full.png" alt="MJ Electrical"><div class="pq-co"><b>${esc(co)}</b>${det ? "<br>" + lines(det) : ""}</div></div>
+  <div class="pq-head">${mjeLogoFull()}<div class="pq-co"><b>${esc(co)}</b>${det ? "<br>" + lines(det) : ""}</div></div>
   <h1>QUOTATION</h1>
   <div class="pq-meta">
     <div class="pq-box"><h4>Quote for</h4><b>${esc(q.CustomerName || c?.Title || "")}</b>${c?.BillingAddress ? "<br>" + lines(c.BillingAddress) : ""}${q.ContactName ? `<br>Attention: ${esc(q.ContactName)}` : ""}</div>
@@ -1714,7 +1715,7 @@ async function sendMail(message){
     throw new Error(r.status === 403 || /denied|not have permission/i.test(m) ? (box ? `Your account isn't allowed to send as ${box}. Ask for "Send As" on that mailbox (Exchange admin centre).` : "Your account isn't allowed to send mail from the Hub.") : "Email not sent: " + m); }
 }
 function openEmail(q){
-  const box = setting("AccountsMailbox", "").trim(), c = D.customers.find(x => x.CustomerCode === q.CustomerCode), co = setting("CompanyName", "MJ Electrical");
+  const box = setting("AccountsMailbox", "").trim(), c = D.customers.find(x => x.CustomerCode === q.CustomerCode), co = setting("CompanyName", BRAND.COMPANY);
   const first = String(q.ContactName || "").trim().split(/\s+/)[0];
   const msg = `Dear ${first || "Sir/Madam"},\n\nPlease find attached our quote ${q.Title}${q.SiteName ? " for work at " + q.SiteName : ""}, totalling ${k2(q.TotalInc)} including GST.\n\nThe quote is valid until ${fmtDate(q.ValidUntil)}. Please let us know if you have any questions or would like to go ahead.\n\nKind regards,\n${S.me?.Title || account?.name || ""}\n${co}`;
   openDialog({ cls:"f-quo", kind:"Quotes · Email", title:`Email ${q.Title}`, save:"Send",
@@ -1776,7 +1777,7 @@ function bindSettings(){
     body:`<fieldset><legend>Company &amp; quotes</legend><div class="fg">${COMPANY_KEYS.map(([k, l, t, w]) =>
       t === "textarea" ? `<label class="fld w3"><span>${l}</span><textarea name="${k}">${esc(setting(k, ""))}</textarea></label>`
       : `<label class="fld ${w === 2 ? "w2" : ""}"><span>${l}</span><input name="${k}" type="${t}" ${t === "number" ? 'step="any" min="0"' : ""} value="${esc(setting(k, ""))}"></label>`).join("")}</div></fieldset>
-      <p class="count">Only MJE site owners can save these.</p>`,
+      <p class="count">Only ${esc(BRAND.SHORT)} site owners can save these.</p>`,
     onSubmit: async () => {
       const box = val("AccountsMailbox"); if (box && !EMAIL_RE.test(box)) return toast(`"${box}" doesn't look like an email address`);
       let n = 0;
@@ -2063,7 +2064,7 @@ function jobNotes(j){
   return `<div class="bar"><span class="count">${rows.length} note${rows.length === 1 ? "" : "s"} and photo${rows.length === 1 ? "" : "s"}</span><span class="grow"></span>
     <label class="btn">📷 Add photos<input type="file" id="jobPhotoIn" accept="image/*" multiple hidden></label><button class="btn primary" data-jact="note">+ Add note</button></div>
   <div class="card" style="margin-bottom:14px"><h3>Photos</h3><div class="photos" id="jobPhotos"><span class="count">Loading photos…</span></div>
-    <p class="count" style="margin:8px 0 0">Photos are resized to 1600 px and saved in MJE_JobFiles / ${esc(j.Title)}.</p></div>
+    <p class="count" style="margin:8px 0 0">Photos are resized to 1600 px and saved in ${esc(CONFIG.LISTS.files)} / ${esc(j.Title)}.</p></div>
   <div class="card"><h3>Notes</h3>${rows.length ? `<ul class="list notes">${rows.map(n => `<li><span class="id mono">${fmtDate(n.NoteDate)}<br><span class="count">${esc(n.NoteTime || "")}</span></span>
     <span class="x"><b>${esc(n.Author || "")}</b> ${n.NoteType && n.NoteType !== "Note" ? `<span class="pill p-grey">${esc(n.NoteType)}</span>` : ""}${n.ShowOnReport === "Yes" ? ` <span class="pill p-info">on report</span>` : ""}<br>${lines(n.NoteText) || ""}
     ${n.FileUrl ? `<br><a href="${esc(n.FileUrl)}" target="_blank" rel="noopener">${esc(n.FileName || "open file")}</a>` : ""}</span></li>`).join("")}</ul>` : `<div class="empty">No notes yet</div>`}</div>`;
@@ -2073,7 +2074,7 @@ async function loadJobPhotos(no){
   const el = $("#jobPhotos"); if (!el) return;
   if (DEMO) { el.innerHTML = `<span class="count">Photos aren't saved in demo mode.</span>`; return; }
   if (JOB_DRIVE === undefined) JOB_DRIVE = await libraryDrive(CONFIG.LISTS.files);
-  if (!JOB_DRIVE) { el.innerHTML = `<span class="count">The MJE_JobFiles library isn't set up.</span>`; return; }
+  if (!JOB_DRIVE) { el.innerHTML = `<span class="count">The ${esc(CONFIG.LISTS.files)} library isn't set up.</span>`; return; }
   try { const r = await graph(`/drives/${JOB_DRIVE}/root:/${encodeURIComponent(no)}:/children?$expand=thumbnails`);
     const imgs = r.value.filter(f => f.file && /^image\//.test(f.file.mimeType || ""));
     el.innerHTML = imgs.length ? imgs.map(p => `<a class="ph" href="${esc(p.webUrl)}" target="_blank" rel="noopener"><img src="${esc(p.thumbnails?.[0]?.medium?.url || "")}" alt="${esc(p.name)}"></a>`).join("") : `<span class="count">No photos yet</span>`; }
@@ -2082,7 +2083,7 @@ async function loadJobPhotos(no){
 async function uploadJobPhotos(j, files){
   if (!files.length) return;
   if (!DEMO && JOB_DRIVE === undefined) JOB_DRIVE = await libraryDrive(CONFIG.LISTS.files);
-  if (!DEMO && !JOB_DRIVE) return toast("The MJE_JobFiles library isn't set up");
+  if (!DEMO && !JOB_DRIVE) return toast(`The ${CONFIG.LISTS.files} library isn't set up`);
   let n = 0;
   for (const [i, f] of [...files].entries()){
     try {
@@ -2368,7 +2369,7 @@ let RESIZING = false;
 
 /* ---------------- boot ---------------- */
 function showSignIn(msg){
-  $("#main").innerHTML = `<div class="card signin"><div class="full"><img src="${MJE_SHARED}mje-logo-full.png" alt="MJ Electrical — Electrical | Communications | Security | Fire"></div><h2>Service Hub</h2><p>Quotes, jobs, scheduling and invoicing for MJ Electrical.</p>
+  $("#main").innerHTML = `<div class="card signin"><div class="full">${mjeLogoFull(true)}</div><h2>Service Hub</h2><p>Quotes, jobs, scheduling and invoicing for ${esc(BRAND.COMPANY)}.</p>
     ${msg ? `<div class="banner err">${esc(msg)}</div>` : ""}<button class="btn primary" id="si">Sign in with Microsoft 365</button></div>`;
   $("#si").onclick = signIn;
 }
@@ -2379,6 +2380,7 @@ async function siteListNames(){
   return out;
 }
 async function start(){
+  mjeApplyBrand("Service Hub");
   mjeRenderApps("service");
   if (mjeAppState("service") === "off") { $("#main").innerHTML = mjeUnavailable("service"); return; }
   $("#dlgLogo").src = $(".logo .chip img").src;

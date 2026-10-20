@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MJE Safety Hub</title>
+<title>Safety Hub</title>
 <link rel="icon" type="image/png" href="shared/mje-icon.png">
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js"></script>
-<link rel="stylesheet" href="shared/mje.css?v=20261005">
+<link rel="stylesheet" href="shared/mje.css?v=20261020">
 <style>
 /* Safety Hub only — everything shared with the Service Hub is in shared/mje.css */
 .hm{display:grid;grid-template-columns:18px 1fr;grid-template-rows:auto auto;gap:4px}
@@ -144,7 +144,7 @@ table.legt a{font-size:12px;color:var(--info)}
 </head>
 <body>
 <header>
-  <div class="logo"><span class="chip"><img src="shared/mje-logo.png" alt="MJ Electrical"></span><span id="apps"></span></div>
+  <div class="logo"><span class="chip"><img data-brand="logo" alt=""></span><span id="apps"></span></div>
   <nav id="nav" hidden>
     <button data-v="dash" class="on">Dashboard</button>
     <button data-v="inc">Incidents</button>
@@ -160,25 +160,26 @@ table.legt a{font-size:12px;color:var(--info)}
 <main id="main"><div class="empty">Loading…</div></main>
 
 <dialog id="dlg"><form method="dialog" id="frm" novalidate>
-  <div class="dh"><span class="dlg-logo"><img id="dlgLogo" alt="MJ Electrical"></span><div class="dt"><span class="kind" id="dlgKind"></span><h2 id="dlgTitle"></h2></div><button type="button" class="btn" id="dlgX" aria-label="Close">✕</button></div>
+  <div class="dh"><span class="dlg-logo"><img id="dlgLogo" alt=""></span><div class="dt"><span class="kind" id="dlgKind"></span><h2 id="dlgTitle"></h2></div><button type="button" class="btn" id="dlgX" aria-label="Close">✕</button></div>
   <div class="db" id="dlgBody"></div>
   <div class="df"><button type="button" class="btn" id="dlgCancel">Cancel</button><button type="submit" class="btn primary" id="dlgSave">Save</button></div>
 </form></dialog>
 <div class="toast" id="toast"></div>
 
-<script src="shared/mje-config.js?v=20261005"></script>
-<script src="shared/mje-core.js?v=20261005"></script>
+<script src="shared/mje-config.js?v=20261020"></script>
+<script src="shared/mje-core.js?v=20261020"></script>
 <script>
 /* =====================================================================
    CONFIG — the Microsoft 365 connection (CLIENT_ID, TENANT_ID, SP_HOST, SITE_PATH)
-   lives in shared/mje-config.js so both MJE apps use the same values.
+   lives in shared/mje-config.js so both Hubs use the same values.
    While CLIENT_ID is left as the placeholder the app runs in DEMO mode
    (nothing is saved).
    ===================================================================== */
 const CONFIG = {
   ...MJE_TENANT,
-  LISTS: { inc: "MJE_Incidents", imp: "MJE_Improvements", risk: "MJE_Risks", rev: "MJE_RiskReviews", eq: "MJE_Equipment", tt: "MJE_TestTag", photos: "MJE_IncidentPhotos",
-           staff: "MJE_Staff", course: "MJE_Courses", trn: "MJE_Training", area: "MJE_InspectionAreas", ins: "MJE_Inspections", leg: "MJE_Legislation", obs: "MJE_Observations" },
+  // List names = BRAND.LIST_PREFIX (mje-config.js) + these, e.g. MJE_Incidents
+  LISTS: mjeLists({ inc: "Incidents", imp: "Improvements", risk: "Risks", rev: "RiskReviews", eq: "Equipment", tt: "TestTag", photos: "IncidentPhotos",
+           staff: "Staff", course: "Courses", trn: "Training", area: "InspectionAreas", ins: "Inspections", leg: "Legislation", obs: "Observations" }),
   SCOPES: ["Sites.ReadWrite.All", "User.Read"],
   RTW_HOURS_PER_DAY: 9
 };
@@ -281,7 +282,7 @@ const LIKE = ["Rare","Unlikely","Possible","Likely","Almost Certain"];
 const CONS = ["Insignificant","Minor","Moderate","Major","Catastrophic"];
 const LV = { "Rare":1, "Unlikely":3, "Possible":5, "Likely":7, "Almost Certain":9 };
 const CV = { "Insignificant":1, "Minor":6, "Moderate":11, "Major":16, "Catastrophic":21 };
-// 5x5 matrix from MJE Risk Register (OPS-307-21): score = likelihood value + consequence value
+// 5x5 matrix from the MJE Risk Register (OPS-307-21) — the default for every install: score = likelihood value + consequence value
 const MX = {
   "Almost Certain":["Low","Medium","High","Very High","Very High"],
   "Likely":        ["Low","Medium","Medium","High","Very High"],
@@ -355,7 +356,7 @@ function riskFiltered(){ const f = S.filt.risk, q = f.q.toLowerCase(), lk = f.re
     (!f.cell || (r[lk] + "|" + r[ck]) === f.cell) &&
     (!q || [r.Title,r.ActivityArea,r.Task,r.Hazard,r.Impact,r.Controls,r.Responsible].join(" ").toLowerCase().includes(q))); }
 function viewRisk(){
-  if (S.missing.includes("risk")) return `<div class="banner err">The risk lists haven't been set up on SharePoint yet. Run the Phase 2 provisioning script (Provision-MJE-Risks-Phase2.ps1), then refresh this page.</div>`;
+  if (S.missing.includes("risk")) return `<div class="banner err">The risk lists haven't been set up on SharePoint yet. Run the setup kit, then refresh this page.</div>`;
   const f = S.filt.risk;
   const base = S.risk.filter(r => !f.reg || r.RegisterType === f.reg);
   const rows = sortRows(riskFiltered(), "risk");
@@ -377,7 +378,7 @@ function viewRisk(){
       ${heatmap(base, f.residual)}</div>
     <div class="card"><h3>${f.residual ? "Residual rating" : "Rating"} — ${esc(f.reg || "all registers")}</h3>
       ${rc.map(r => `<div class="hb"><span>${r.label}</span><span class="t"><i style="width:${r.total/rcMax*100}%;background:${rcCol[r.label]}"></i></span><span class="n">${r.total}</span></div>`).join("")}
-      <p class="count" style="margin-top:12px">Scores use MJE's 5×5 matrix: likelihood (Rare 1 … Almost Certain 9) + consequence (Insignificant 1 … Catastrophic 21).</p></div>
+      <p class="count" style="margin-top:12px">Scores use the 5×5 risk matrix: likelihood (Rare 1 … Almost Certain 9) + consequence (Insignificant 1 … Catastrophic 21).</p></div>
   </div>
   <div class="bar">
     <input type="search" id="q" placeholder="Search activity, hazard, controls…" value="${esc(f.q)}">
@@ -452,7 +453,7 @@ function viewAssets(){
   return (sub === "eq" ? viewEquip(tabs) : viewTestTag(tabs));
 }
 function viewEquip(tabs){
-  if (S.missing.includes("eq")) return tabs + `<div class="banner err">The equipment list hasn't been set up on SharePoint yet. Run the Phase 3 script (Provision-MJE-Phase3.ps1), then refresh.</div>`;
+  if (S.missing.includes("eq")) return tabs + `<div class="banner err">The equipment list hasn't been set up on SharePoint yet. Run the setup kit, then refresh.</div>`;
   const f = S.filt.eq, q = f.q.toLowerCase();
   const rows = sortRows(S.eq.filter(r => (!f.cat || r.Category === f.cat) && (!f.status || r.EquipStatus === f.status) &&
     (!q || [r.Title,r.Make,r.Model,r.EquipType,r.SerialRego,r.Location,r.Remarks].join(" ").toLowerCase().includes(q))), "eq");
@@ -485,7 +486,7 @@ function ttFiltered(){ const f = S.filt.tt, q = f.q.toLowerCase();
   return (f.all ? S.tt : ttLatest()).filter(r => (!f.state || (f.state === "attn" ? ["overdue","fail"].includes(ttState(r)) : ttState(r) === f.state)) &&
     (!q || [r.Title,r.PlantID,r.Description,r.Location,r.Comments,r.Remarks].join(" ").toLowerCase().includes(q))); }
 function viewTestTag(tabs){
-  if (S.missing.includes("tt")) return tabs + `<div class="banner err">The test & tag list hasn't been set up on SharePoint yet. Run the Phase 3 script (Provision-MJE-Phase3.ps1), then refresh.</div>`;
+  if (S.missing.includes("tt")) return tabs + `<div class="banner err">The test & tag list hasn't been set up on SharePoint yet. Run the setup kit, then refresh.</div>`;
   const f = S.filt.tt;
   const latest = ttLatest();
   const rows = sortRows(ttFiltered(), "tt");
@@ -516,7 +517,7 @@ function viewTestTag(tabs){
   </tbody></table>${rows.length ? "" : `<div class="empty">No test records match</div>`}</div>`;
 }
 
-/* ---------- incident photos (stored in the MJE_IncidentPhotos library, one folder per incident) ---------- */
+/* ---------- incident photos (stored in the IncidentPhotos library, one folder per incident) ---------- */
 let photoQueue = [];
 async function photoDrive(){
   if (S.photoDrive !== undefined) return S.photoDrive;
@@ -535,7 +536,7 @@ async function loadPhotos(title){
   const el = $("#phList"); if (!el) return;
   if (DEMO) { el.innerHTML = `<span class="count">Photos aren't saved in demo mode.</span>`; return; }
   const d = await photoDrive();
-  if (!d) { el.innerHTML = `<span class="count">Photo library not set up yet (run the Phase 3 script).</span>`; return; }
+  if (!d) { el.innerHTML = `<span class="count">Photo library not set up yet (run the setup kit).</span>`; return; }
   if (!title) { el.innerHTML = ""; return; }
   el.innerHTML = `<span class="count">Loading photos…</span>`;
   try {
@@ -555,7 +556,7 @@ async function uploadPhotos(title){
   }
   photoQueue = []; return n;
 }
-const NO_PERMISSION = "You don't have permission to change this record. MJE staff can log new incidents, edit their own incidents and add photos; everything else is edited by the MJE site owners.";
+const NO_PERMISSION = `You don't have permission to change this record. ${BRAND.SHORT} staff can log new incidents, edit their own incidents and add photos; everything else is edited by the ${BRAND.SHORT} site owners.`;
 /* ================= TRAINING, INSPECTIONS, LEGISLATION (Phase 4) ================= */
 const INS_TYPES = ["Inspection","Internal Audit"];
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -601,7 +602,7 @@ const trnCourses = () => [...S.course].sort((a,b) => (a.Category||"").localeComp
 function viewTraining(){
   const sub = S.filt.training.sub;
   const tabs = `<div class="bar chips"><button class="chip ${sub==="matrix"?"on":""}" data-tsub="matrix">Competency matrix</button><button class="chip ${sub==="staff"?"on":""}" data-tsub="staff">Staff <span>${activeStaff().length}</span></button><button class="chip ${sub==="course"?"on":""}" data-tsub="course">Courses <span>${S.course.length}</span></button></div>`;
-  if (S.missing.includes("trn") || S.missing.includes("staff")) return `<div class="bar"><h2>Training & Competency</h2></div>${tabs}<div class="banner err">The training lists haven't been set up on SharePoint yet. Run the Phase 4 script (Provision-MJE-Phase4.ps1), then refresh.</div>`;
+  if (S.missing.includes("trn") || S.missing.includes("staff")) return `<div class="bar"><h2>Training & Competency</h2></div>${tabs}<div class="banner err">The training lists haven't been set up on SharePoint yet. Run the setup kit, then refresh.</div>`;
   if (sub === "staff") return viewSimpleList("staff", "Staff", tabs, [["Title","Name"],["EmployeeNo","Emp no."],["Position","Position"],["Department","Department"],["HubRole","Service Hub role"],["StaffStatus","Status"]], "+ New staff member");
   if (sub === "course") return viewSimpleList("course", "Courses", tabs, [["Title","Course"],["Category","Category"],["RefresherMonths","Refresher (months)"]], "+ New course");
   const f = S.filt.trn;
@@ -648,7 +649,7 @@ function viewSimpleList(key, title, tabs, cols, addLabel){
 
 /* ---- inspections & internal audits ----
    Internal audits are inspection areas whose Type is "Internal Audit" (one topic per month);
-   areas with no Type are workplace inspections. Both record into MJE_Inspections. */
+   areas with no Type are workplace inspections. Both record into the Inspections list. */
 const AUD = "Internal Audit";
 const cap1 = s => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 const isAudArea = a => !!a && a.InspType === AUD;
@@ -680,7 +681,7 @@ function insStats(t, y){
 }
 function viewInspections(tabs, t = "ins"){
   const T = INS_TXT[t];
-  if (S.missing.includes("area")) return `<div class="bar"><h2>Compliance</h2></div>${tabs}<div class="banner err">The inspection lists haven't been set up on SharePoint yet. Run the setup kit (Setup-MJE-Hub.ps1), then refresh.</div>`;
+  if (S.missing.includes("area")) return `<div class="bar"><h2>Compliance</h2></div>${tabs}<div class="banner err">The inspection lists haven't been set up on SharePoint yet. Run the setup kit, then refresh.</div>`;
   const f = S.filt[t], y = f.year, all = areasOf(t), areas = insAreasFiltered(t), st = insStats(t, y);
   const pre = esc(JSON.stringify({ InspType: t === "aud" ? AUD : "Inspection" }));
   const rowsHtml = areas.map(a => `<tr><th class="who-cell" data-open="area:${a.id}"><b>${esc(a.Title)}</b><span>${esc(a.Frequency || "")}${a.Responsible ? " · " + esc(a.Responsible) : ""}${a.PlannedMonth ? "" : " · not scheduled"}</span></th>` +
@@ -717,7 +718,7 @@ function viewInspections(tabs, t = "ins"){
 const legDue = r => { if (!r.LastReviewed) return ""; return addMonths(r.LastReviewed, { Monthly:1, Quarterly:3, Annually:12 }[r.ReviewFrequency] || 1); };
 const legState = r => !r.LastReviewed ? "none" : legDue(r) < TODAY ? "overdue" : "ok";
 function viewLegislation(tabs){
-  if (S.missing.includes("leg")) return `<div class="bar"><h2>Compliance</h2></div>${tabs}<div class="banner err">The legislation list hasn't been set up on SharePoint yet. Run the Phase 4 script (Provision-MJE-Phase4.ps1), then refresh.</div>`;
+  if (S.missing.includes("leg")) return `<div class="bar"><h2>Compliance</h2></div>${tabs}<div class="banner err">The legislation list hasn't been set up on SharePoint yet. Run the setup kit, then refresh.</div>`;
   const f = S.filt.leg, q = f.q.toLowerCase();
   const rows = S.leg.filter(r => (!f.topic || r.Topic === f.topic) && (!f.state || legState(r) !== "ok") && (!q || [r.Title,r.ParentAct,r.ChangesNoted,r.AffectedDocuments].join(" ").toLowerCase().includes(q)));
   const acts = rows.filter(r => r.LegType === "Act");
@@ -832,7 +833,7 @@ function incTrend(ym){
   return `<svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Incidents per month, last 12 months">${bars}</svg>`;
 }
 
-function rptNoteKey(ym){ return "mjeHseNote:" + ym; }
+function rptNoteKey(ym){ return mjeStoreKey("mjeHseNote:" + ym); }
 function rptNote(ym){ try { return localStorage.getItem(rptNoteKey(ym)) || ""; } catch { return ""; } }
 
 const RPT_GROUPS = [
@@ -849,7 +850,7 @@ function viewReports(){
   const months = []; let m = ymOf(TODAY); for (let k = 0; k < 24; k++){ months.push(m); m = prevYm(m); }
   return `<div class="bar noprint"><h2>Reports</h2><span class="grow"></span>
       <label class="count" for="rptMonth">Month</label><select class="f" id="rptMonth">${months.map(v => `<option value="${v}" ${v === f.month ? "selected" : ""}>${ymLabel(v)}</option>`).join("")}</select>
-      <button class="btn primary" data-rprint="MJE HSE Report ${f.month}">Print / Save as PDF</button></div>
+      <button class="btn primary" data-rprint="${esc(BRAND.SHORT)} HSE Report ${f.month}">Print / Save as PDF</button></div>
     ${tabs}${hseReport(f.month)}
     <p class="count noprint">Type comments in the box before printing; they're kept on this computer only. In the print window choose <b>Save as PDF</b> to make a file to email.</p>`;
 }
@@ -865,7 +866,7 @@ function hseReport(ym){
   const sevRows = INC_SEV.map(s => [s, c.inc.filter(i => i.Severity === s).length, S.inc.filter(i => inYm(i.IncidentDate, ym.slice(0,4)) && (i.IncidentDate || "") <= c.d && i.Severity === s).length]).filter(r => r[1] || r[2]);
   const daysLate = t => Math.round((new Date(c.d) - new Date(t)) / 864e5);
   return `<article class="rpt" id="rpt">
-  <header class="rh"><img src="${MJE_SHARED}mje-logo-full.png" alt="MJ Electrical"><div><h1>Monthly HSE Report</h1><div class="rm">${ymLabel(ym)}</div>
+  <header class="rh">${mjeLogoFull()}<div><h1>Monthly HSE Report</h1><div class="rm">${ymLabel(ym)}</div>
     <div class="rmeta">Figures as at ${fmtDate(c.d)}${cur ? " (month in progress)" : ""} · prepared ${fmtDate(TODAY)}${account?.name ? " by " + esc(account.name) : ""}</div></div></header>
 
   <section><h2>Headline figures <small>change ${vs}</small></h2><div class="rts">
@@ -911,7 +912,7 @@ function hseReport(ym){
   </section>
 
   <section class="rnote"><h2>Comments</h2><div id="rptNote" contenteditable="true" data-ph="Click here to add the Safety Officer's comments for this month…">${esc(rptNote(ym))}</div></section>
-  <footer class="rf">Source: MJE Safety Hub registers. Figures are worked out as at ${fmtDate(c.d)} from the dates recorded; risks and legislation show their current status because no history is kept. Change arrows compare with ${ymLabel(prevYm(ym))}.</footer>
+  <footer class="rf">Source: ${esc(BRAND.SHORT)} Safety Hub registers. Figures are worked out as at ${fmtDate(c.d)} from the dates recorded; risks and legislation show their current status because no history is kept. Change arrows compare with ${ymLabel(prevYm(ym))}.</footer>
 </article>`;
 }
 /* ---------------- printable incident report ---------------- */
@@ -928,7 +929,7 @@ function viewIncReport(tabs){
   return `<div class="bar noprint"><h2>Reports</h2><span class="grow"></span>
       <label class="count" for="rptInc">Incident</label><select class="f" id="rptInc" style="max-width:420px">${list.map(x => `<option value="${esc(x.id)}" ${x === i ? "selected" : ""}>${esc(x.Title)} · ${fmtDate(x.IncidentDate)}${incName(x) ? " · " + esc(incName(x)) : ""} · ${esc(x.Severity || "")}</option>`).join("")}</select>
       ${rptBack()}<button class="btn" data-open="inc:${esc(i.id)}">Edit incident</button>
-      <button class="btn primary" data-rprint="MJE Incident Report ${esc(i.Title)}">Print / Save as PDF</button></div>
+      <button class="btn primary" data-rprint="${esc(BRAND.SHORT)} Incident Report ${esc(i.Title)}">Print / Save as PDF</button></div>
     ${tabs}${incReport(i)}
     <p class="count noprint">One incident on one page, for insurers, a workers' compensation claim or the employee's file. Blank fields print as a dash. In the print window choose <b>Save as PDF</b> to make a file to email.</p>`;
 }
@@ -943,7 +944,7 @@ function incReport(i){
   const flag = { "Lost Time Injury":"Lost time injury", "Serious / Notifiable":"Serious / notifiable incident" }[i.Severity];
   const signers = [["Person involved", incName(i)], ["Supervisor", ""], ["Safety Officer", ""], ["Managing Director", ""]];
   return `<article class="rpt" id="rpt">
-  <header class="rh"><img src="${MJE_SHARED}mje-logo-full.png" alt="MJ Electrical"><div class="grow"><h1>Incident Report</h1><div class="rm">${esc(i.Title)}</div>
+  <header class="rh">${mjeLogoFull()}<div class="grow"><h1>Incident Report</h1><div class="rm">${esc(i.Title)}</div>
     <div class="rmeta">Safety Incident Register · printed ${fmtDate(TODAY)}${account?.name ? " by " + esc(account.name) : ""}</div></div>
     <div class="rbadges"><span class="rb">${v(i.Severity)}</span><span class="rb st">${v(i.IncidentStatus)}</span></div></header>
   ${flag ? `<div class="rflag">${flag}: check that the workers' compensation notification has been made and recorded.</div>` : ""}
@@ -972,10 +973,10 @@ function incReport(i){
 
   <section class="sign"><h2>Sign-off</h2><table class="rtab"><thead><tr><th style="width:24%"></th><th style="width:32%">Name</th><th style="width:28%">Signature</th><th>Date</th></tr></thead><tbody>
     ${signers.map(([r, n]) => `<tr><td>${r}</td><td>${esc(n)}</td><td></td><td></td></tr>`).join("")}</tbody></table></section>
-  <footer class="rf">MJE Safety Hub · ${esc(i.Title)} · Contains personal information: keep with the employee's file and share only with people who need it.</footer>
+  <footer class="rf">${esc(BRAND.SHORT)} Safety Hub · ${esc(i.Title)} · Contains personal information: keep with the employee's file and share only with people who need it.</footer>
 </article>`;
 }
-// Photos come from the incident's folder in MJE_IncidentPhotos (large thumbnails so they print clearly)
+// Photos come from the incident's folder in the IncidentPhotos library (large thumbnails so they print clearly)
 async function loadReportPhotos(el){
   const title = el.dataset.title, sec = $("#rptPhotoSec");
   const show = (html, hide) => { if (el.isConnected) { el.innerHTML = html; if (hide && sec) sec.classList.add("noprint"); } };
@@ -1085,23 +1086,23 @@ function viewLookahead(tabs){
       <label class="count" for="rptDays">Look ahead</label><select class="f" id="rptDays">${AHEAD_DAYS.map(d => `<option value="${d}" ${d === f.days ? "selected" : ""}>${d} days</option>`).join("")}</select>
       <label class="count"><input type="checkbox" id="rptOverdue" ${f.overdue ? "checked" : ""}> Include overdue</label>
       <label class="count"><input type="checkbox" id="rptGroup" ${f.group ? "checked" : ""}> Group by type</label>
-      <button class="btn primary" data-rprint="MJE Lookahead ${TODAY}">Print / Save as PDF</button></div>
+      <button class="btn primary" data-rprint="${esc(BRAND.SHORT)} Lookahead ${TODAY}">Print / Save as PDF</button></div>
     ${tabs}
   <article class="rpt" id="rpt">
-  <header class="rh"><img src="${MJE_SHARED}mje-logo-full.png" alt="MJ Electrical"><div><h1>${f.days}-Day Lookahead</h1><div class="rm">${fmtDate(TODAY)} to ${fmtDate(end)}</div>
+  <header class="rh">${mjeLogoFull()}<div><h1>${f.days}-Day Lookahead</h1><div class="rm">${fmtDate(TODAY)} to ${fmtDate(end)}</div>
     <div class="rmeta">${label ? esc(label) + " only · " : ""}${f.overdue ? "includes items already overdue" : "overdue items not shown"}${f.group ? " · grouped by type; test &amp; tag combined by location" : ""} · prepared ${fmtDate(TODAY)}${account?.name ? " by " + esc(account.name) : ""}</div></div></header>
   <section><h2>Falling due <small class="noprint">click a box to show one type; click again for all</small></h2><div class="rts">${tiles}</div></section>
   <section>${rows.length ? `<table class="rtab ag"><thead><tr><th style="width:92px">Due</th><th style="width:150px">Type</th><th>Item</th><th>Who / where</th><th>Notes</th></tr></thead><tbody>
     ${groups.map(([g, rs, o]) => `<tr class="grp ${o ? "od" : ""}"><td colspan="5">${g} <small>${nItems(rs)}</small></td></tr>` + groupRows(rs, f.group)).join("")}
   </tbody></table>` : `<p class="rk">Nothing falls due in the next ${f.days} days${label ? " for " + esc(label.toLowerCase()) : ""}.</p>`}
   ${missing ? `<p class="rk" style="margin-top:8px">Also: ${missing} mandatory training requirement${missing === 1 ? " has" : "s have"} never been recorded — see the Training matrix.</p>` : ""}</section>
-  <footer class="rf">Source: MJE Safety Hub registers. Training = recorded expiry dates for active staff · Test &amp; tag = latest test per item · Inspections / internal audits = planned months not yet done · Observations = one-off due dates and review frequency · Risk reviews = review schedule · Legislation = last review + frequency · Improvement actions = open one-off actions by target date.</footer>
+  <footer class="rf">Source: ${esc(BRAND.SHORT)} Safety Hub registers. Training = recorded expiry dates for active staff · Test &amp; tag = latest test per item · Inspections / internal audits = planned months not yet done · Observations = one-off due dates and review frequency · Risk reviews = review schedule · Legislation = last review + frequency · Improvement actions = open one-off actions by target date.</footer>
 </article>
   <p class="count noprint">Click a row to open the record. Use this to book courses, testers and inspections ahead of time.</p>`;
 }
 
 /* ---------------- shared report pieces ---------------- */
-const rptHead = (title, sub, meta) => `<header class="rh"><img src="${MJE_SHARED}mje-logo-full.png" alt="MJ Electrical"><div class="grow"><h1>${title}</h1><div class="rm">${sub}</div>
+const rptHead = (title, sub, meta) => `<header class="rh">${mjeLogoFull()}<div class="grow"><h1>${title}</h1><div class="rm">${sub}</div>
   <div class="rmeta">${meta ? meta + " · " : ""}prepared ${fmtDate(TODAY)}${account?.name ? " by " + esc(account.name) : ""}</div></div></header>`;
 const rptBar = (controls, printTitle) => `<div class="bar noprint"><h2>Reports</h2><span class="grow"></span>${controls}${rptBack()}<button class="btn primary" data-rprint="${esc(printTitle)}">Print / Save as PDF</button></div>`;
 const rsel = (id, opts, cur) => `<select class="f" id="${id}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
@@ -1147,7 +1148,7 @@ function viewCaReport(tabs){
     <td class="mono">${r.oneOff ? (r.due ? `<span class="${r.late ? "late" : ""}">${fmtDate(r.due)}</span>` : `<span class="late">not set</span>`) : esc(r.i.Recurrence)}</td>
     <td class="n">${r.late ? `<span class="late">${daysBetween(r.due, TODAY)}</span>` : ""}</td><td>${esc(r.i.ImprovementStatus)}</td></tr>`;
   return rptBar(`<label class="count">Show</label>${rsel("caShow", [["open","All open"],["overdue","Overdue"],["soon","Overdue + next 30 days"],["nodate","No due date"]], f.caShow)}
-      ${rsel("caOwner", [["", "All owners"], ...owners.map(o => [o, o])], f.caOwner)}${rsel("caBy", [["due","Sort by due date"],["owner","Group by owner"]], f.caBy)}`, `MJE Corrective Actions ${TODAY}`) + tabs + missingNote(["imp"]) + `
+      ${rsel("caOwner", [["", "All owners"], ...owners.map(o => [o, o])], f.caOwner)}${rsel("caBy", [["due","Sort by due date"],["owner","Group by owner"]], f.caBy)}`, `${BRAND.SHORT} Corrective Actions ${TODAY}`) + tabs + missingNote(["imp"]) + `
   <article class="rpt" id="rpt">${rptHead("Corrective Action Tracker", `Open actions at ${fmtDate(TODAY)}`, showLbl + (f.caOwner ? " · " + esc(f.caOwner) : ""))}
   <section><div class="rts">${rtile("Open actions", all.length, `${all.filter(r => !r.oneOff).length} ongoing / recurring`)}${rtile("Overdue", all.filter(r => r.late).length, all.filter(r => r.late).length ? `oldest ${daysBetween(all.filter(r => r.late).map(r => r.due).sort()[0], TODAY)} days late` : "", all.some(r => r.late) ? "bad" : "")}
     ${rtile("Due in 30 days", all.filter(r => r.soon).length, "")}${rtile("Not assigned", all.filter(r => r.owner === "Not assigned").length, `${all.filter(r => r.oneOff && !r.due).length} with no due date`)}</div></section>
@@ -1185,7 +1186,7 @@ function viewTrendReport(tabs){
   const monthRows = months.map(m => { const r = inc.filter(i => inYm(i.IncidentDate, m)), c = r.reduce((a, i) => a + num(i.TotalEstCost), 0); run += c;
     return `<tr><td>${ymLabel(m)}</td><td class="n">${r.length || ""}</td><td class="n">${r.filter(i => i.Severity === "Near Miss").length || ""}</td><td class="n">${r.filter(i => i.Severity === "Lost Time Injury").length || ""}</td><td class="n">${r.reduce((a, i) => a + num(i.WorkersTimeLostHrs), 0) || ""}</td><td class="n">${c ? kina(c) : ""}</td><td class="n">${run ? kina(run) : ""}</td></tr>`; }).join("");
   const period = f.trPeriod === "12m" ? `${ymLabel(months[0])} to ${ymLabel(months[11])}` : `Calendar year ${f.trPeriod}`;
-  return rptBar(`<label class="count">Period</label>${rsel("trPeriod", [["12m","Last 12 months"], ...years.map(y => [y, y])], f.trPeriod)}`, `MJE Incident Trends ${f.trPeriod}`) + tabs + `
+  return rptBar(`<label class="count">Period</label>${rsel("trPeriod", [["12m","Last 12 months"], ...years.map(y => [y, y])], f.trPeriod)}`, `${BRAND.SHORT} Incident Trends ${f.trPeriod}`) + tabs + `
   <article class="rpt" id="rpt">${rptHead("Incident Trends", period, `${inc.length} incident${inc.length === 1 ? "" : "s"}`)}
   <section><div class="rts">${rtile("Incidents", inc.length, (n => `${n} near miss${n === 1 ? "" : "es"}`)(inc.filter(i => i.Severity === "Near Miss").length))}${rtile("Injuries", injuries.length, "excluding near misses & damage only")}
     ${rtile("Lost time injuries", lti.length, `${hrs} working hours lost`, lti.length ? "bad" : "")}${rtile("Est. cost", kina(cost), inc.length ? `average ${kina(cost / inc.length)} per incident` : "")}</div></section>
@@ -1208,7 +1209,7 @@ function viewRunSheet(tabs){
   const byLoc = [...new Set(rows.map(r => (r.Location || "").trim() || "No location recorded"))].sort().map(l => [l, rows.filter(r => ((r.Location || "").trim() || "No location recorded") === l)
     .sort((a, b) => (a.NextTestDate || "").localeCompare(b.NextTestDate || "") || String(a.PlantID || a.Description).localeCompare(String(b.PlantID || b.Description), undefined, { numeric:true }))]);
   const why = r => r.Result === "Fail" ? `<span class="late">Failed ${fmtDate(r.TestDate)}</span>` : !r.NextTestDate ? `<span class="late">no date</span>` : r.NextTestDate < TODAY ? `<span class="late">${fmtDate(r.NextTestDate)}</span>` : fmtDate(r.NextTestDate);
-  return rptBar(`<label class="count">Due within</label>${rsel("rsDays", [[0,"Overdue only"],[14,"14 days"],[30,"30 days"],[60,"60 days"],[90,"90 days"]], f.rsDays)}${rsel("rsLoc", [["", "All locations"], ...locs.map(l => [l, l])], f.rsLoc)}`, `MJE Test and Tag Run Sheet ${TODAY}`) + tabs + missingNote(["tt"]) + `
+  return rptBar(`<label class="count">Due within</label>${rsel("rsDays", [[0,"Overdue only"],[14,"14 days"],[30,"30 days"],[60,"60 days"],[90,"90 days"]], f.rsDays)}${rsel("rsLoc", [["", "All locations"], ...locs.map(l => [l, l])], f.rsLoc)}`, `${BRAND.SHORT} Test and Tag Run Sheet ${TODAY}`) + tabs + missingNote(["tt"]) + `
   <article class="rpt" id="rpt">${rptHead("Test &amp; Tag Run Sheet", f.rsDays ? `Overdue and due by ${fmtDate(end)}` : "Overdue items", `${rows.length} item${rows.length === 1 ? "" : "s"}${f.rsLoc ? " · " + esc(f.rsLoc) : ""}`)}
   <section class="rsmeta"><div class="kvs four"><div class="kv"><span>Tester / competent person</span><b class="line"></b></div><div class="kv"><span>Licence / ticket no.</span><b class="line"></b></div><div class="kv"><span>Test instrument</span><b class="line"></b></div><div class="kv"><span>Date(s) tested</span><b class="line"></b></div></div></section>
   ${byLoc.length ? byLoc.map(([l, rs]) => `<section><h2>${esc(l)} <small>${rs.length} item${rs.length === 1 ? "" : "s"}</small></h2><table class="rtab run"><thead><tr><th style="width:74px">Plant ID</th><th>Description</th><th style="width:70px">Last test</th><th style="width:70px">Due</th><th style="width:56px">Period</th><th style="width:76px">Pass / Fail</th><th style="width:66px">Reading</th><th style="width:72px">New tag date</th><th style="width:44px">Initials</th></tr></thead><tbody>
@@ -1227,8 +1228,8 @@ function viewTrainingRecord(tabs){
   const mand = recs.filter(r => r.Requirement === "Mandatory"), cur = mand.filter(r => ["done","expiring"].includes(trnState(r))).length;
   const sec = (title, list) => list.length ? `<section><h2>${title} <small>${list.length}</small></h2><table class="rtab"><thead><tr><th>Course</th><th style="width:86px">Completed</th><th style="width:86px">Expires</th><th style="width:150px">Status</th><th style="width:130px">Provider</th><th style="width:100px">Certificate no.</th></tr></thead><tbody>
     ${list.map(r => `<tr data-open="trn:${esc(r.id)}"><td>${esc(r.Course)}${S.course.find(c => c.Title === r.Course)?.RefresherMonths ? `<div class="sm">refresher every ${num(S.course.find(c => c.Title === r.Course).RefresherMonths)} months</div>` : ""}</td><td class="mono">${fmtDate(r.CompletedDate)}</td><td class="mono">${fmtDate(r.ExpiryDate)}</td><td><span class="rst ${st(r)[1]}">${st(r)[0]}</span></td><td>${esc(r.Provider)}</td><td class="mono">${esc(r.CertificateNo)}</td></tr>`).join("")}</tbody></table></section>` : "";
-  return rptBar(`<label class="count">Staff member</label>${rsel("trStaff", staff.map(s => [s.id, s.Title + (s.StaffStatus === "Left" ? " (left)" : "")]), p.id)}<button class="btn" data-open="staff:${esc(p.id)}">Edit staff member</button>`, `MJE Training Record ${p.Title}`) + tabs + missingNote(["staff","trn"]) + `
-  <article class="rpt" id="rpt">${rptHead("Training &amp; Competency Record", esc(p.Title), p.StaffStatus === "Left" ? "no longer with MJE" : "")}
+  return rptBar(`<label class="count">Staff member</label>${rsel("trStaff", staff.map(s => [s.id, s.Title + (s.StaffStatus === "Left" ? " (left)" : "")]), p.id)}<button class="btn" data-open="staff:${esc(p.id)}">Edit staff member</button>`, `${BRAND.SHORT} Training Record ${p.Title}`) + tabs + missingNote(["staff","trn"]) + `
+  <article class="rpt" id="rpt">${rptHead("Training &amp; Competency Record", esc(p.Title), p.StaffStatus === "Left" ? `no longer with ${esc(BRAND.SHORT)}` : "")}
   <section><div class="kvs four"><div class="kv"><span>Position</span><b>${esc(p.Position) || `<span class="nil">—</span>`}</b></div><div class="kv"><span>Department</span><b>${esc(p.Department) || `<span class="nil">—</span>`}</b></div>
     <div class="kv"><span>Employee no.</span><b>${esc(p.EmployeeNo) || `<span class="nil">—</span>`}</b></div><div class="kv"><span>Mandatory training current</span><b>${mand.length ? `${cur} of ${mand.length} (${Math.round(cur / mand.length * 100)}%)` : "none recorded"}</b></div></div></section>
   ${sec("Mandatory", mand)}${sec("Extended / other", recs.filter(r => r.Requirement !== "Mandatory"))}
@@ -1244,7 +1245,7 @@ function viewAssetReport(tabs){
   const tot = rs => [rs.reduce((a, r) => a + num(r.Cost), 0), rs.reduce((a, r) => a + num(r.DisposalValue), 0)];
   const [tc, td] = tot(items), veh = items.filter(r => r.Category === "Vehicle");
   const sort = rs => [...rs].sort((a, b) => String(a.Title).localeCompare(String(b.Title), undefined, { numeric:true }));
-  return rptBar(`<label class="count"><input type="checkbox" id="eqDisposed" ${f.eqDisposed ? "checked" : ""}> Include disposed items</label>`, `MJE Asset and Fleet Report ${TODAY}`) + tabs + missingNote(["eq"]) + `
+  return rptBar(`<label class="count"><input type="checkbox" id="eqDisposed" ${f.eqDisposed ? "checked" : ""}> Include disposed items</label>`, `${BRAND.SHORT} Asset and Fleet Report ${TODAY}`) + tabs + missingNote(["eq"]) + `
   <article class="rpt" id="rpt">${rptHead("Asset &amp; Fleet Report", `Plant &amp; equipment at ${fmtDate(TODAY)}`, f.eqDisposed ? "includes disposed items" : "items in and out of service")}
   <section><div class="rts">${rtile("Items", items.length, `${items.filter(r => r.EquipStatus === "Out of service").length} out of service`)}${rtile("Vehicles", veh.length, `${veh.filter(r => r.EquipStatus === "In service" || !r.EquipStatus).length} in service`)}
     ${rtile("Purchase cost", kina(tc), "total recorded")}${rtile("Disposal value", kina(td), "total recorded")}</div></section>
@@ -1267,7 +1268,7 @@ function viewLegLog(tabs){
                  ...rows.filter(r => r.LegType !== "Act" && !acts.some(a => a.Title === r.ParentAct))];
   const state = r => ({ none:`<span class="late">Not reviewed</span>`, overdue:`<span class="late">Overdue — was due ${fmtDate(legDue(r))}</span>`, ok:`Next ${fmtDate(legDue(r))}` }[legState(r)]);
   const topics = [...new Set(S.leg.map(r => r.Topic).filter(Boolean))].sort();
-  return rptBar(`<label class="count">Topic</label>${rsel("legTopic", [["", "All topics"], ...topics.map(t => [t, t])], f.legTopic)}`, `MJE Legislation Review Log ${TODAY}`) + tabs + missingNote(["leg"]) + `
+  return rptBar(`<label class="count">Topic</label>${rsel("legTopic", [["", "All topics"], ...topics.map(t => [t, t])], f.legTopic)}`, `${BRAND.SHORT} Legislation Review Log ${TODAY}`) + tabs + missingNote(["leg"]) + `
   <article class="rpt" id="rpt">${rptHead("Legislation Review Log", `Legislative compliance at ${fmtDate(TODAY)}`, f.legTopic ? esc(f.legTopic) : "all topics")}
   <section><div class="rts">${rtile("Instruments", rows.length, `${acts.length} Acts`)}${rtile("Reviews up to date", rows.filter(r => legState(r) === "ok").length, `of ${rows.length}`)}
     ${rtile("Overdue / not reviewed", rows.filter(r => legState(r) !== "ok").length, "", rows.some(r => legState(r) !== "ok") ? "bad" : "")}${rtile("Compliant", rows.filter(r => r.ComplianceStatus === "Compliant").length, `${rows.filter(r => r.ComplianceStatus === "Review required").length} review required`)}</div></section>
@@ -1288,7 +1289,7 @@ function viewRegInc(tabs){
   const f = S.filt.inc, rows = sortRows(incFiltered(), "inc");
   const years = [...new Set(S.inc.map(i => (i.IncidentDate || "").slice(0, 4)).filter(Boolean).concat(YEAR))].sort().reverse();
   const cost = rows.reduce((a, i) => a + num(i.TotalEstCost), 0);
-  return rptBar(`<select class="f" data-f="inc:year">${opt(years, f.year, "All years")}</select><select class="f" data-f="inc:status">${opt(INC_STATUS, f.status, "All statuses")}</select><select class="f" data-f="inc:sev">${opt(INC_SEV, f.sev, "All severities")}</select>`, `MJE Safety Incident Register ${f.year || "all"}`) + tabs + `
+  return rptBar(`<select class="f" data-f="inc:year">${opt(years, f.year, "All years")}</select><select class="f" data-f="inc:status">${opt(INC_STATUS, f.status, "All statuses")}</select><select class="f" data-f="inc:sev">${opt(INC_SEV, f.sev, "All severities")}</select>`, `${BRAND.SHORT} Safety Incident Register ${f.year || "all"}`) + tabs + `
   <article class="rpt" id="rpt">${rptHead("Safety Incident Register", f.year ? `Incidents in ${esc(f.year)}` : "All incidents", fdesc([f.status, f.sev, f.q && `search "${esc(f.q)}"`]))}
   <section><div class="rts">${rtile("Incidents", rows.length, `${rows.filter(i => i.IncidentStatus !== "Closed").length} not closed`)}${rtile("Lost time injuries", rows.filter(i => i.Severity === "Lost Time Injury").length, `${rows.reduce((a, i) => a + num(i.WorkersTimeLostHrs), 0)} working hours lost`)}
     ${rtile("Near misses", rows.filter(i => i.Severity === "Near Miss").length, "")}${rtile("Est. cost", kina(cost), "direct + indirect + RTW")}</div></section>
@@ -1304,7 +1305,7 @@ function viewRegImp(tabs){
   const f = S.filt.imp, rows = sortRows(impFiltered(), "imp");
   const stLbl = { "":"All statuses", open:"Not closed", overdue:"Overdue" }[f.status] ?? f.status;
   const statusOpts = [["", "All statuses"], ["open", "Not closed"], ["overdue", "Overdue"], ...IMP_STATUS.map(x => [x, x])];
-  return rptBar(`<select class="f" data-f="imp:status">${statusOpts.map(([v, l]) => `<option value="${v}" ${v === f.status ? "selected" : ""}>${l}</option>`).join("")}</select><select class="f" data-f="imp:cat">${opt(IMP_CAT, f.cat, "All categories")}</select><select class="f" data-f="imp:pri">${opt(IMP_PRI, f.pri, "All priorities")}</select><select class="f" data-f="imp:src">${opt(impSources(), f.src, "All sources")}</select>`, `MJE Improvement Register ${TODAY}`) + tabs + `
+  return rptBar(`<select class="f" data-f="imp:status">${statusOpts.map(([v, l]) => `<option value="${v}" ${v === f.status ? "selected" : ""}>${l}</option>`).join("")}</select><select class="f" data-f="imp:cat">${opt(IMP_CAT, f.cat, "All categories")}</select><select class="f" data-f="imp:pri">${opt(IMP_PRI, f.pri, "All priorities")}</select><select class="f" data-f="imp:src">${opt(impSources(), f.src, "All sources")}</select>`, `${BRAND.SHORT} Improvement Register ${TODAY}`) + tabs + `
   <article class="rpt" id="rpt">${rptHead("Improvement Register", stLbl, fdesc([f.cat, f.pri && "priority " + f.pri, f.src && "source " + esc(f.src), f.q && `search "${esc(f.q)}"`]))}
   <section><div class="rts">${rtile("Improvements", rows.length, `${rows.filter(i => i.ImprovementStatus === "Closed").length} closed`)}${rtile("Overdue", rows.filter(isOverdue).length, "", rows.some(isOverdue) ? "bad" : "")}
     ${rtile("High priority open", rows.filter(i => i.Priority === "H" && i.ImprovementStatus !== "Closed").length, "")}${rtile("Ongoing / recurring", rows.filter(i => (i.Recurrence || "One-off") !== "One-off").length, "")}</div></section>
@@ -1329,14 +1330,14 @@ function viewRegRisk(tabs){
   const f = S.filt.risk, rows = sortRows(riskFiltered(), "risk");
   const regs = REGISTERS.filter(g => rows.some(r => r.RegisterType === g)).concat(rows.some(r => !REGISTERS.includes(r.RegisterType)) ? ["Other"] : []);
   const inReg = g => rows.filter(r => g === "Other" ? !REGISTERS.includes(r.RegisterType) : r.RegisterType === g);
-  return rptBar(`${rsel("regRiskReg", [["", "All registers"], ...REGISTERS.map(g => [g, g])], f.reg)}<select class="f" data-f="risk:rating">${opt(RATINGS, f.rating, "All ratings")}<option value="hi" ${f.rating === "hi" ? "selected" : ""}>High & very high (open)</option></select><select class="f" data-f="risk:status">${opt(RISK_STATUS, f.status, "All statuses")}</select>`, `MJE Risk Register ${f.reg || "all"} ${TODAY}`) + tabs + missingNote(["risk"]) + `
+  return rptBar(`${rsel("regRiskReg", [["", "All registers"], ...REGISTERS.map(g => [g, g])], f.reg)}<select class="f" data-f="risk:rating">${opt(RATINGS, f.rating, "All ratings")}<option value="hi" ${f.rating === "hi" ? "selected" : ""}>High & very high (open)</option></select><select class="f" data-f="risk:status">${opt(RISK_STATUS, f.status, "All statuses")}</select>`, `${BRAND.SHORT} Risk Register ${f.reg || "all"} ${TODAY}`) + tabs + missingNote(["risk"]) + `
   <article class="rpt" id="rpt">${rptHead("Risk Register", f.reg ? esc(f.reg) + " register" : "All registers", fdesc([f.rating === "hi" ? "high & very high (open)" : f.rating && (f.residual ? "residual " : "") + f.rating, f.status, f.cell && f.cell.replace("|", " × "), f.q && `search "${esc(f.q)}"`]))}
   <section class="r2"><div><h2>Risk matrix <small>before controls</small></h2>${rptHeat(rows, false)}</div><div><h2>Risk matrix <small>residual, after controls</small></h2>${rptHeat(rows, true)}</div></section>
   <section><div class="rts six">${RATINGS.map(rt => rtile(rt, rows.filter(r => r.Rating === rt).length, `${rows.filter(r => r.ResidualRating === rt).length} after controls`)).join("")}${rtile("Risks shown", rows.length, `${rows.filter(openRisk).length} open`)}</div></section>
   ${regs.map(g => `<section><h2>${esc(g)} <small>${inReg(g).length}</small></h2><table class="rtab reg risk"><thead><tr><th style="width:42px">Ref</th><th style="width:15%">Activity / task</th><th style="width:19%">Hazard / risk</th><th style="width:84px">Before</th><th>Controls</th><th style="width:66px">Residual</th><th style="width:74px">Responsible</th><th style="width:66px">Status</th></tr></thead><tbody>
     ${inReg(g).map(r => `<tr data-open="risk:${esc(r.id)}"><td class="mono">${esc(r.Title)}</td><td>${esc(r.ActivityArea)}${r.Task ? `<div class="sm">${esc(r.Task)}</div>` : ""}</td><td>${esc(r.Hazard)}${r.Impact ? `<div class="sm">${esc(r.Impact)}</div>` : ""}</td>
       <td>${rrate(r.Rating)}${r.Likelihood ? `<div class="sm">${esc(r.Likelihood)} × ${esc(r.Consequence)}${r.RiskScore ? " = " + esc(r.RiskScore) : ""}</div>` : ""}</td><td class="sm">${esc(r.Controls)}</td><td>${rrate(r.ResidualRating)}${r.ResidualScore ? `<div class="sm">score ${esc(r.ResidualScore)}</div>` : ""}</td><td>${esc(r.Responsible)}</td><td>${esc(r.RiskStatus)}${r.LastReviewed ? `<div class="sm">reviewed ${fmtDate(r.LastReviewed)}</div>` : ""}</td></tr>`).join("")}</tbody></table></section>`).join("") || `<p class="rk">No risks match these filters.</p>`}
-  <footer class="rf">Scores use MJE's 5×5 matrix: likelihood (Rare 1 … Almost Certain 9) + consequence (Insignificant 1 … Catastrophic 21). The matrices count the risks listed in this report.</footer></article>${landscapeTip}`;
+  <footer class="rf">Scores use the 5×5 risk matrix: likelihood (Rare 1 … Almost Certain 9) + consequence (Insignificant 1 … Catastrophic 21). The matrices count the risks listed in this report.</footer></article>${landscapeTip}`;
 }
 
 function viewRegTrn(tabs){
@@ -1350,7 +1351,7 @@ function viewRegTrn(tabs){
   const body = staff.map(s => { const head = s.Department !== dept ? `<tr class="grp"><td colspan="${courses.length + 2}">${esc(s.Department || "—")}</td></tr>` : ""; dept = s.Department;
     const m = S.trn.filter(r => r.StaffName === s.Title && r.Requirement === "Mandatory"), o = m.filter(r => ["done","expiring"].includes(trnState(r))).length;
     return head + `<tr data-open="staff:${esc(s.id)}"><td class="nm">${esc(s.Title)}<div class="sm">${esc(s.Position || "")}</div></td>${courses.map(c => cell(trnFor(s.Title, c.Title))).join("")}<td class="n">${m.length ? Math.round(o / m.length * 100) + "%" : ""}</td></tr>`; }).join("");
-  return rptBar(`<select class="f" data-f="trn:dept">${opt(DEPTS, f.dept, "All departments")}</select><label class="count"><input type="checkbox" id="regTrnGaps" ${f.gaps ? "checked" : ""}> Staff with gaps only</label>`, `MJE Training Competency Matrix ${TODAY}`) + tabs + missingNote(["staff","trn"]) + `
+  return rptBar(`<select class="f" data-f="trn:dept">${opt(DEPTS, f.dept, "All departments")}</select><label class="count"><input type="checkbox" id="regTrnGaps" ${f.gaps ? "checked" : ""}> Staff with gaps only</label>`, `${BRAND.SHORT} Training Competency Matrix ${TODAY}`) + tabs + missingNote(["staff","trn"]) + `
   <article class="rpt" id="rpt">${rptHead("Training &amp; Competency Matrix", `At ${fmtDate(TODAY)}`, fdesc([f.dept, f.gaps && "staff with gaps only", f.q && `search "${esc(f.q)}"`]))}
   <section><div class="rts">${rtile("Mandatory training current", mand.length ? Math.round(ok / mand.length * 100) + "%" : "—", `${ok} of ${mand.length} requirements`)}${rtile("Not recorded", cnt("missing"), "mandatory, no completion date", cnt("missing") ? "bad" : "")}
     ${rtile("Expired", cnt("expired"), "needs refresher", cnt("expired") ? "bad" : "")}${rtile("Expiring in 60 days", cnt("expiring"), "book now")}</div></section>
@@ -1366,7 +1367,7 @@ function viewRegTT(tabs){
   const states = [["", "All"], ["attn","Overdue or failed"],["overdue","Overdue"],["soon","Due in 30 days"],["fail","Failed"],["ok","Current"]];
   const stLbl = { "":"", attn:"overdue or failed", overdue:"overdue", soon:"due in 30 days", fail:"failed", ok:"current" }[f.state];
   return rptBar(`<select class="f" data-f="tt:state">${states.map(([v, l]) => `<option value="${v}" ${f.state === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-      <span class="seg"><button class="${f.all ? "" : "on"}" data-ttall="0">Latest test per item</button><button class="${f.all ? "on" : ""}" data-ttall="1">All test records</button></span>`, `MJE Test and Tag Register ${TODAY}`) + tabs + missingNote(["tt"]) + `
+      <span class="seg"><button class="${f.all ? "" : "on"}" data-ttall="0">Latest test per item</button><button class="${f.all ? "on" : ""}" data-ttall="1">All test records</button></span>`, `${BRAND.SHORT} Test and Tag Register ${TODAY}`) + tabs + missingNote(["tt"]) + `
   <article class="rpt" id="rpt">${rptHead("Test &amp; Tag Register", f.all ? "All test records" : "Latest test per item", fdesc([stLbl, f.q && `search "${esc(f.q)}"`]))}
   <section><div class="rts">${rtile("Overdue for test", c("overdue"), `of ${latest.length} items`, c("overdue") ? "bad" : "")}${rtile("Due in 30 days", c("soon"), "")}${rtile("Failed last test", c("fail"), "remove from service", c("fail") ? "bad" : "")}${rtile("Current", c("ok"), "tag in date")}</div></section>
   <section>${rows.length ? `<table class="rtab reg"><thead><tr><th style="width:62px">Test no.</th><th style="width:76px">Plant ID</th><th>Description</th><th>Location</th><th style="width:56px">Period</th><th style="width:66px">Tested</th><th style="width:70px">Next test</th><th style="width:70px">Result</th><th>Tested by</th></tr></thead><tbody>
@@ -1379,7 +1380,7 @@ function viewRegIns(tabs, t = "ins"){
   const T = INS_TXT[t], f = S.filt[t], y = f.year, areas = insAreasFiltered(t), all = areasOf(t);
   const { planned, done, overdue: missed } = insStats(t, y);
   const log = insOf(t).filter(i => (i.InspectionDate || "").startsWith(y)).sort((a, b) => (a.InspectionDate || "").localeCompare(b.InspectionDate || ""));
-  return rptBar(`<select class="f" data-f="${t}:year">${insYears().map(v => `<option ${v === y ? "selected" : ""}>${v}</option>`).join("")}</select><label class="count"><input type="checkbox" id="regInsMissed" data-t="${t}" ${f.missed ? "checked" : ""}> ${cap1(T.unit)} with missed ${T.things} only</label>`, `MJE ${T.title} ${y}`) + tabs + missingNote(["area","ins"]) + `
+  return rptBar(`<select class="f" data-f="${t}:year">${insYears().map(v => `<option ${v === y ? "selected" : ""}>${v}</option>`).join("")}</select><label class="count"><input type="checkbox" id="regInsMissed" data-t="${t}" ${f.missed ? "checked" : ""}> ${cap1(T.unit)} with missed ${T.things} only</label>`, `${BRAND.SHORT} ${T.title} ${y}`) + tabs + missingNote(["area","ins"]) + `
   <article class="rpt" id="rpt">${rptHead(T.title, esc(y), f.missed ? `${T.unit} with missed ${T.things} only` : `${areas.length} ${areas.length === 1 ? T.one : T.unit}`)}
   <section><div class="rts">${rtile(`${cap1(T.things)} recorded`, log.length, `in ${esc(y)}`)}${rtile("Planned slots done", `${done}/${planned}`, planned ? Math.round(done / planned * 100) + "% of the plan" : "")}${rtile("Planned, missed", missed, "months already passed", missed ? "bad" : "")}${t === "aud"
       ? rtile("Raised improvements", log.filter(i => (i.ActionsRaised || "").trim()).length, "audits with an IR no.")
@@ -1399,7 +1400,7 @@ function viewRegObs(tabs){
   const stLbl = { "":"All statuses", open:"Not closed", overdue:"Overdue actions", review:"Review due / not recorded" }[f.status] ?? f.status;
   const statusOpts = [["", "All statuses"], ["open", "Not closed"], ["overdue", "Overdue"], ["review", "Review due / not recorded"], ...OBS_STATUS.map(x => [x, x])];
   const over = rows.filter(obsOverdue).length, rev = rows.filter(o => ["overdue","none"].includes(obsRevState(o))).length;
-  return rptBar(`<select class="f" data-f="obs:status">${statusOpts.map(([v, l]) => `<option value="${v}" ${v === f.status ? "selected" : ""}>${l}</option>`).join("")}</select><select class="f" data-f="obs:src">${opt(obsSources(), f.src, "All sources")}</select>`, `MJE Task and Observation Register ${TODAY}`) + tabs + missingNote(["obs"]) + `
+  return rptBar(`<select class="f" data-f="obs:status">${statusOpts.map(([v, l]) => `<option value="${v}" ${v === f.status ? "selected" : ""}>${l}</option>`).join("")}</select><select class="f" data-f="obs:src">${opt(obsSources(), f.src, "All sources")}</select>`, `${BRAND.SHORT} Task and Observation Register ${TODAY}`) + tabs + missingNote(["obs"]) + `
   <article class="rpt" id="rpt">${rptHead("Task &amp; Observation Monitoring Register", stLbl, fdesc([f.src && "source " + esc(f.src), f.q && `search "${esc(f.q)}"`]))}
   <section><div class="rts">${rtile("Items", rows.length, `${rows.filter(o => o.ObsStatus === "Closed").length} closed`)}${rtile("Overdue actions", over, "one-off, past due date", over ? "bad" : "")}${rtile("Reviews due", rev, "overdue or none recorded", rev ? "bad" : "")}${rtile("Linked to improvements", rows.filter(o => (o.LinkedImprovement || "").trim()).length, "")}</div></section>
   <section>${rows.length ? `<table class="rtab reg"><thead><tr><th style="width:64px">TOM No</th><th>Observation / impact</th><th>Action required</th><th style="width:90px">Responsible</th><th style="width:96px">Due / review</th><th>Evidence</th><th style="width:70px">Status</th></tr></thead><tbody>
@@ -1633,7 +1634,7 @@ function obsFiltered(){ const f = S.filt.obs, q = f.q.toLowerCase();
     (!f.src || (o.Source || "").trim() === f.src) &&
     (!q || [o.Title,o.Observation,o.ImpactRisk,o.ActionRequired,o.Responsible,o.Evidence,o.Remarks,o.LinkedImprovement,o.Source].join(" ").toLowerCase().includes(q))); }
 function viewObs(tabs){
-  if (S.missing.includes("obs")) return `<div class="bar"><h2>Task &amp; Observation Monitoring</h2></div>${tabs}<div class="banner err">The MJE_Observations list hasn't been set up on SharePoint yet. Run Setup-MJE-Hub.ps1 from setup kit v2.2, then refresh this page.</div>`;
+  if (S.missing.includes("obs")) return `<div class="bar"><h2>Task &amp; Observation Monitoring</h2></div>${tabs}<div class="banner err">The ${esc(CONFIG.LISTS.obs)} list hasn't been set up on SharePoint yet. Run the setup kit, then refresh this page.</div>`;
   const f = S.filt.obs, rows = sortRows(obsFiltered(), "obs");
   const open = S.obs.filter(obsOpen), over = S.obs.filter(obsOverdue), rev = S.obs.filter(o => ["overdue","none"].includes(obsRevState(o)));
   const statusOpts = `<option value="">All statuses</option><option value="open" ${f.status==="open"?"selected":""}>Not closed</option><option value="overdue" ${f.status==="overdue"?"selected":""}>Overdue actions</option><option value="review" ${f.status==="review"?"selected":""}>Review due / not recorded</option>` + OBS_STATUS.map(s => `<option ${s===f.status?"selected":""}>${s}</option>`).join("");
@@ -1936,7 +1937,7 @@ function exportCsv(key){
   const lines = [cols.map(c => cell(c[1])).join(",")].concat(sortRows(S[key], key).map(r => cols.map(c => cell(c[2]==="date" ? fmtDate(r[c[0]]) : r[c[0]])).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + lines.join("\r\n")], { type:"text/csv" }));
-  a.download = `MJE_${FILE_NAMES[key]}_${TODAY}.csv`; a.click();
+  a.download = `${BRAND.SHORT}_${FILE_NAMES[key]}_${TODAY}.csv`; a.click();
 }
 
 /* ---------------- link from the Service Hub: log an incident against a job ---------------- */
@@ -1954,13 +1955,14 @@ function openIncidentFromLink(){
 
 /* ---------------- boot ---------------- */
 function showSignIn(msg){
-  $("#main").innerHTML = `<div class="card signin"><div class="full"><img src="${MJE_SHARED}mje-logo-full.png" alt="MJ Electrical — Electrical | Communications | Security | Fire"></div><h2>Safety Hub</h2><p>Safety incident and improvement registers for MJ Electrical.</p>
+  $("#main").innerHTML = `<div class="card signin"><div class="full">${mjeLogoFull(true)}</div><h2>Safety Hub</h2><p>Safety, risk and compliance registers for ${esc(BRAND.COMPANY)}.</p>
     ${msg ? `<div class="banner err">${esc(msg)}</div>` : ""}<button class="btn primary" id="si">Sign in with Microsoft 365</button></div>`;
   $("#si").onclick = signIn;
 }
 async function start(){
   // keep a "log an incident for job …" link safe across a Microsoft sign-in redirect
   if (/^#new-incident\?/.test(location.hash)) { try { sessionStorage.setItem("mjeIncidentLink", location.hash); } catch {} }
+  mjeApplyBrand("Safety Hub");
   mjeRenderApps("safety");
   if (mjeAppState("safety") === "off") { $("#main").innerHTML = mjeUnavailable("safety"); return; }
   $("#dlgLogo").src = $(".logo .chip img").src;

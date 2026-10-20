@@ -17,6 +17,35 @@ const MJE_TENANT = {
 };
 
 /* =====================================================================
+   The company these Hubs belong to.  Another company (or the demo site)
+   gets its own copy of this file - no code changes needed.
+     COMPANY      - full name: headers, printouts, quotes and invoices
+     SHORT        - short name: page titles ("MJE Safety Hub"), report
+                    and file names, messages ("ask the MJE office")
+     TAGLINE      - optional line under the name on the sign-in page
+     LIST_PREFIX  - start of every SharePoint list / library name
+                    (MJE_ -> MJE_Incidents).  Must match the -Prefix the
+                    setup kit was run with.
+     OFFICE_GROUP - the SharePoint group for office staff (setup kit step 13)
+     LOGO / LOGO_FULL / ICON - file names in shared/
+     STORE_TAG    - keeps this site's phone data (offline queue, timer,
+                    saved jobs) apart from other Hub sites opened in the
+                    same browser.  Leave it out and the site address is
+                    used.  MJE keeps "" so phones keep what they have.
+   ===================================================================== */
+const MJE_BRAND = {
+  COMPANY:      "MJ Electrical",
+  SHORT:        "MJE",
+  TAGLINE:      "Electrical | Communications | Security | Fire",
+  LIST_PREFIX:  "MJE_",
+  OFFICE_GROUP: "MJE Office",
+  LOGO:         "mje-logo.png",
+  LOGO_FULL:    "mje-logo-full.png",
+  ICON:         "mje-icon.png",
+  STORE_TAG:    ""
+};
+
+/* =====================================================================
    Which Hubs are switched on.  Each one is "on", "off" or "preview".
      "on"      - everyone can use it (the default)
      "off"     - hidden from the header for everyone; opening its address
