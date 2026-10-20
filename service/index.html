@@ -500,6 +500,8 @@ async function findByRef(key, ref){
 }
 async function sendOp(op){
   const f = { ...op.fields };
+  // Notes queued before 20 Oct 2026 used "Author" - SharePoint's own Created By column, which can't be written
+  if (op.key === "notes" && "Author" in f){ f.NoteBy ??= f.Author; delete f.Author; }
   if (DEMO) return { ...f, id:"demo" + Date.now() + Math.random().toString(36).slice(2) };
   const found = await findByRef(op.key, f.ClientRef);
   if (found) return found;                                             // already there from an earlier try
@@ -685,7 +687,7 @@ function openMyNote(j){
   openDialog({ cls:"f-note", kind:"My Jobs · Note", title:`Note — ${j.Title}`,
     body: formBody([["Note", [["NoteText","Note","textarea",{req:1,w:3}], ["ShowOnReport","Show on the customer's job report?","select",{opts:["No","Yes"]}] ]]], { ShowOnReport:"No" }) + micButton("NoteText"),
     onSubmit: async () => { const now = new Date(), f = readForm();
-      await queueSave("notes", { Title:j.Title, Author: techName(), NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Note", NoteText:f.NoteText, ShowOnReport:f.ShowOnReport }, { label:`Note on ${j.Title}` });
+      await queueSave("notes", { Title:j.Title, NoteBy: techName(), NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Note", NoteText:f.NoteText, ShowOnReport:f.ShowOnReport }, { label:`Note on ${j.Title}` });
       $("#dlg").close(); toast("Note added"); render(); } });
   bindMic();
 }
@@ -694,7 +696,7 @@ async function addMyPhotos(j, files){
   for (const [i, file] of [...files].entries()){
     toast(`Preparing photo ${i + 1} of ${files.length}…`);
     const blob = await shrink(file), now = new Date(), name = `${j.Title}_${Date.now()}_${i + 1}.jpg`;
-    await queueSave("notes", { Title:j.Title, Author: techName(), NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Photo", FileName:name, ShowOnReport:"Yes" },
+    await queueSave("notes", { Title:j.Title, NoteBy: techName(), NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Photo", FileName:name, ShowOnReport:"Yes" },
       { label:`Photo on ${j.Title}`, file:{ blob, name, folder:j.Title, field:"FileUrl", type:"image/jpeg" } });
     n++;
   }
@@ -875,7 +877,7 @@ function viewMyJob(no){
 
   <div class="card"><div class="bar"><h3>Notes &amp; photos</h3><span class="grow"></span>${closed ? "" : `<label class="btn sm">📷 Photo<input type="file" id="myPhotoIn" accept="image/*" capture="environment" multiple hidden></label><button class="btn sm" data-myact="note">+ Note</button>`}</div>
     <div class="photos" id="myPhotos">${notes.filter(n => n.NoteType === "Photo").map(n => n._thumb ? `<span class="ph"><img src="${n._thumb}" alt="Photo waiting to send"><span class="phw">waiting</span></span>` : n.FileUrl ? `<a class="ph" href="${esc(n.FileUrl)}" target="_blank" rel="noopener"><span class="phf">📷 ${esc(fmtDate(n.NoteDate))}<br>${esc(n.NoteTime || "")}</span></a>` : "").join("")}</div>
-    ${notes.filter(n => n.NoteType !== "Photo" && n.NoteType !== "Signature").length ? `<ul class="list notes">${notes.filter(n => n.NoteType !== "Photo" && n.NoteType !== "Signature").map(n => `<li><span class="id mono">${fmtDate(n.NoteDate)}<br><span class="count">${esc(n.NoteTime || "")}</span></span><span class="x"><b>${esc(n.Author || "")}</b>${pend(n)}<br>${lines(n.NoteText)}</span></li>`).join("")}</ul>` : notes.length ? "" : `<div class="empty">No notes yet</div>`}</div>
+    ${notes.filter(n => n.NoteType !== "Photo" && n.NoteType !== "Signature").length ? `<ul class="list notes">${notes.filter(n => n.NoteType !== "Photo" && n.NoteType !== "Signature").map(n => `<li><span class="id mono">${fmtDate(n.NoteDate)}<br><span class="count">${esc(n.NoteTime || "")}</span></span><span class="x"><b>${esc(n.NoteBy || "")}</b>${pend(n)}<br>${lines(n.NoteText)}</span></li>`).join("")}</ul>` : notes.length ? "" : `<div class="empty">No notes yet</div>`}</div>
 
   <div class="card"><h3>Sign-off</h3>
     ${live ? `<p>Signed off ${fmtDate(live.CompletedDate)} ${esc(live.CompletedTime || "")} by ${esc(live.Technician || "")} — ${live.CustomerNotPresent === "Yes" ? `customer not present (${esc(live.NotPresentReason || "")})` : `customer: ${esc(live.SignedByName || "")}${live.SignatureFile || live._pending ? " ✍" : ""}`}${pend(live)}</p>
@@ -2066,7 +2068,7 @@ function jobNotes(j){
   <div class="card" style="margin-bottom:14px"><h3>Photos</h3><div class="photos" id="jobPhotos"><span class="count">Loading photos…</span></div>
     <p class="count" style="margin:8px 0 0">Photos are resized to 1600 px and saved in ${esc(CONFIG.LISTS.files)} / ${esc(j.Title)}.</p></div>
   <div class="card"><h3>Notes</h3>${rows.length ? `<ul class="list notes">${rows.map(n => `<li><span class="id mono">${fmtDate(n.NoteDate)}<br><span class="count">${esc(n.NoteTime || "")}</span></span>
-    <span class="x"><b>${esc(n.Author || "")}</b> ${n.NoteType && n.NoteType !== "Note" ? `<span class="pill p-grey">${esc(n.NoteType)}</span>` : ""}${n.ShowOnReport === "Yes" ? ` <span class="pill p-info">on report</span>` : ""}<br>${lines(n.NoteText) || ""}
+    <span class="x"><b>${esc(n.NoteBy || "")}</b> ${n.NoteType && n.NoteType !== "Note" ? `<span class="pill p-grey">${esc(n.NoteType)}</span>` : ""}${n.ShowOnReport === "Yes" ? ` <span class="pill p-info">on report</span>` : ""}<br>${lines(n.NoteText) || ""}
     ${n.FileUrl ? `<br><a href="${esc(n.FileUrl)}" target="_blank" rel="noopener">${esc(n.FileName || "open file")}</a>` : ""}</span></li>`).join("")}</ul>` : `<div class="empty">No notes yet</div>`}</div>`;
 }
 let JOB_DRIVE;
@@ -2091,7 +2093,7 @@ async function uploadJobPhotos(j, files){
       const blob = await shrink(f), name = `${j.Title}_${Date.now()}_${i + 1}.jpg`;
       const up = DEMO ? { webUrl:"#" } : await uploadToDrive(JOB_DRIVE, j.Title, name, blob);
       const now = new Date();
-      await saveRow("notes", null, { Title:j.Title, Author: me(), NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Photo", FileName:name, FileUrl: up.webUrl, ShowOnReport:"Yes", ClientRef: newRef() });
+      await saveRow("notes", null, { Title:j.Title, NoteBy: me(), NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Photo", FileName:name, FileUrl: up.webUrl, ShowOnReport:"Yes", ClientRef: newRef() });
       n++;
     } catch(e){ toast(`Photo ${i + 1} wasn't uploaded: ${isForbidden(e) ? "no permission" : e.message}`); }
   }
@@ -2101,7 +2103,7 @@ function openNote(j){
   openDialog({ cls:"f-note", kind:"Job Centre · Note", title:`Note on ${j.Title}`,
     body: formBody([["Note", [["NoteText","Note","textarea",{req:1,w:3}], ["ShowOnReport","Show on the customer's job report?","select",{opts:["No","Yes"]}] ]]], { ShowOnReport:"No" }),
     onSubmit: async () => { const now = new Date(), f = readForm();
-      await saveRow("notes", null, { Title:j.Title, Author: me(), NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Note", NoteText:f.NoteText, ShowOnReport:f.ShowOnReport, ClientRef: newRef() });
+      await saveRow("notes", null, { Title:j.Title, NoteBy: me(), NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Note", NoteText:f.NoteText, ShowOnReport:f.ShowOnReport, ClientRef: newRef() });
       $("#dlg").close(); toast("Note added"); render(); } });
 }
 
