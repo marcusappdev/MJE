@@ -61,7 +61,13 @@ function mjeAppSwitcher(current){
   const list = MJE_APPS.filter(a => mjeAppAllowed(a.key));
   if (list.length < 2) return `<span id="apps"></span>`;
   return `<div class="apps" id="apps" role="navigation" aria-label="${esc(BRAND.SHORT)} apps">${list.map(a =>
-    `<a href="${a.href}" class="${a.key === current ? "on" : ""}"${a.key === current ? ' aria-current="page"' : ""}>${a.name}${mjeAppState(a.key) === "preview" ? '<span class="pv" title="Preview - only listed people can see this Hub">Preview</span>' : ""}</a>`).join("")}</div>`;
+    `<a href="${a.href}" class="${a.key === current ? "on" : ""}"${a.key === current ? ' aria-current="page"' + mjeAppColour(a.key) : ""}>${a.name}${mjeAppState(a.key) === "preview" ? '<span class="pv" title="Preview - only listed people can see this Hub">Preview</span>' : ""}</a>`).join("")}</div>`;
+}
+// Optional colour for the selected Hub button: MJE_BRAND.APP_COLOURS = { safety:["#FACC15","#111"], service:[...] } (background, text)
+function mjeAppColour(key){
+  const c = BRAND.APP_COLOURS && BRAND.APP_COLOURS[key];
+  const ok = v => /^#[0-9a-f]{3,8}$/i.test(String(v || ""));
+  return Array.isArray(c) && ok(c[0]) && ok(c[1]) ? ` style="background:${c[0]};color:${c[1]}"` : "";
 }
 function mjeRenderApps(current){ const el = document.getElementById("apps"); if (el) el.outerHTML = mjeAppSwitcher(current); }
 // Page shown when a Hub is switched off (or in preview and this person isn't listed)

@@ -28,6 +28,10 @@ const MJE_TENANT = {
                     setup kit was run with.
      OFFICE_GROUP - the SharePoint group for office staff (setup kit step 13)
      LOGO / LOGO_FULL / ICON - file names in shared/
+     APP_COLOURS  - optional: colour of the selected Hub button in the
+                    header, as [background, text], e.g.
+                    APP_COLOURS: { safety:["#FACC15","#111111"], service:["#1D4ED8","#FFFFFF"] }
+                    Leave it out for the plain white button.
      STORE_TAG    - keeps this site's phone data (offline queue, timer,
                     saved jobs) apart from other Hub sites opened in the
                     same browser.  Leave it out and the site address is
