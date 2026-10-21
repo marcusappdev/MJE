@@ -46,6 +46,7 @@ const MJE_BRAND = {
   LOGO:         "mje-logo.png",
   LOGO_FULL:    "mje-logo-full.png",
   ICON:         "mje-icon.png",
+  APP_COLOURS:  { safety:["#FACC15","#111111"], service:["#1D4ED8","#FFFFFF"] },
   STORE_TAG:    ""
 };
 
