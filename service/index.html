@@ -175,7 +175,7 @@ const CONFIG = {
     jobs:"Jobs", assign:"JobAssignments", time:"TimeEntries", mat:"JobMaterials", notes:"JobNotes",
     comp:"JobCompletions", chk:"Checklists", resp:"ChecklistResponses", files:"JobFiles",
     inv:"Invoices", iline:"InvoiceLines", pay:"InvoicePayments", sync:"MyobSync",
-    rates:"LabourRates", settings:"ServiceSettings", numbers:"ServiceNumbers",
+    rates:"LabourRates", settings:"ServiceSettings", numbers:"ServiceNumbers", supp:"Suppliers",
     // Safety Hub lists the Service Hub reads
     staff:"Staff", trn:"Training", course:"Courses", tt:"TestTag", risk:"Risks", inc:"Incidents",
   }),
@@ -188,7 +188,7 @@ const LIST_INFO = {
   customers:"Customers (billing entities)", sites:"Service sites", assets:"Customer equipment", quotes:"Quotes", qlines:"Quote lines",
   jobs:"Jobs", assign:"Technician bookings", time:"Time entries", mat:"Job materials", notes:"Job notes & photos", comp:"Job completions",
   chk:"Checklist templates", resp:"Checklist answers", files:"Job files library", inv:"Invoices", iline:"Invoice lines", pay:"Payments",
-  sync:"MYOB sync queue", rates:"Labour rates", settings:"Service settings", numbers:"Number counters",
+  sync:"MYOB sync queue", rates:"Labour rates", settings:"Service settings", numbers:"Number counters", supp:"Suppliers",
   staff:"Staff (Safety Hub)", trn:"Training records (Safety Hub)", course:"Courses (Safety Hub)", tt:"Test & tag (Safety Hub)",
   risk:"Risk registers (Safety Hub)", inc:"Incidents (Safety Hub)" };
 const SAFETY_KEYS = ["staff","trn","course","tt","risk","inc"];
@@ -197,13 +197,14 @@ const SAFETY_KEYS = ["staff","trn","course","tt","risk","inc"];
 const OFFICE = ["Admin","Office"], TECH = ["Technician"];
 const CUST_LOAD = ["customers","sites","assets","jobs","quotes","sync","settings","comp","time","assign"];
 const ROUTES = {
-  dash:      { label:"Dashboard",         roles:OFFICE, lists:["jobs","assign","quotes","inv","comp","time","mat","rates"], load:["jobs","assign","quotes","inv","comp","time","mat","rates"], step:"Dashboard — jobs by status, today's schedule, unscheduled jobs, quotes awaiting reply, completed-not-invoiced value, overdue jobs" },
+  dash:      { label:"Dashboard",         roles:OFFICE, lists:["jobs","assign","quotes","inv","comp","time","mat","rates"], load:["jobs","assign","quotes","inv","comp","time","mat","rates"], step:"Dashboard — jobs by status, today's schedule, unscheduled jobs, quotes pending approval, completed-not-invoiced value, overdue jobs" },
   customers: { label:"Customers & Sites", roles:OFFICE, lists:["customers","sites","assets"], load:CUST_LOAD, step:"Customers & Sites — search, create and edit; each site shows its equipment and full job history" },
   quotes:    { label:"Quotes",            roles:OFFICE, lists:["quotes","qlines","rates","numbers"], load:["quotes","qlines","rates","settings","customers","sites","jobs"], step:"Quotes — labour and parts lines, GST, print/PDF, email, follow-up list, Convert to Job" },
-  jobs:      { label:"Job Centre",        roles:OFFICE, lists:["jobs","assign","time","mat","notes","comp","resp","numbers"], load:["jobs","assign","time","mat","notes","comp","resp","chk","inv","customers","sites","assets","rates","settings","quotes","trn","tt","inc"], step:"Job Centre — filterable job grid and the job page (Details, Schedule, Time, Materials, Notes & Photos, Checklists, Safety, Invoice)" },
+  jobs:      { label:"Job Centre",        roles:OFFICE, lists:["jobs","assign","time","mat","notes","comp","resp","numbers"], load:["jobs","assign","time","mat","notes","comp","resp","chk","inv","customers","sites","assets","rates","settings","quotes","trn","tt","inc","supp"], step:"Job Centre — filterable job grid and the job page (Details, Schedule, Time, Materials, Notes & Photos, Checklists, Safety, Invoice)" },
   schedule:  { label:"Scheduler",         roles:OFFICE, lists:["jobs","assign","staff"], load:["jobs","assign","time","comp","customers","sites","settings","trn","tt"], step:"Scheduler — one row per technician, day and week views, drag and drop, clash warnings" },
   invoices:  { label:"Invoicing",         roles:OFFICE, lists:["inv","iline","pay","sync","numbers"], step:"Invoicing — invoices from completed jobs, deposits, progress, credit notes, payments, Send to MYOB" },
   settings:  { label:"Settings",          roles:OFFICE, lists:["settings","rates","numbers","chk"], load:["settings","rates"], step:"" },
+  suppliers: { label:"Suppliers",         roles:OFFICE, nav:false, lists:["supp"], load:["supp","settings"], step:"" },
   site:      { label:"Site",              roles:OFFICE, nav:false, lists:["customers","sites","assets"], load:CUST_LOAD, step:"" },
   my:        { label:"My Jobs",           roles:TECH,   lists:["jobs","assign","time","mat","notes","comp","resp","chk"], soft:true,
                load:["jobs","assign","time","mat","notes","comp","resp","chk","sites","customers","assets","settings","rates","trn","tt"], step:"My Jobs — today and upcoming, site map link, timer with GPS, materials, notes, photos, checklists, signature, mark complete — works offline" },
@@ -359,7 +360,7 @@ function render(){
         $("#main").innerHTML = banner + `<div class="banner err">${isForbidden(e) ? `You don't have access to some of the Service Hub lists. Ask a ${esc(BRAND.SHORT)} site owner to add you to the ${esc(BRAND.OFFICE_GROUP)} group.` : isNetErr(e) ? "No connection — couldn't reach SharePoint. Try again when you have signal." : "Couldn't load data from SharePoint: " + esc(e.message)}</div>`; });
     return;
   }
-  const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, my:viewMy }[S.route] || viewNoAccess;
+  const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, suppliers:viewSuppliers, my:viewMy }[S.route] || viewNoAccess;
   $("#main").innerHTML = banner + view();
   if ($("#backOffice")) $("#backOffice").onclick = () => { S.viewAs = ""; go("dash"); };
   bindView();
@@ -392,7 +393,7 @@ function viewDash(){
   const today = D.assign.filter(a => a.AssignDate === TODAY && a.AssignStatus !== "Cancelled")
     .sort((a, b) => (a.StartTime || "").localeCompare(b.StartTime || "") || (a.Technician || "").localeCompare(b.Technician || ""));
   const techs = new Set(today.map(a => a.Technician).filter(Boolean)).size;
-  const awaiting = D.quotes.filter(q => q.QuoteStatus === "Sent").sort((a, b) => (a.FollowUpDate || "9999").localeCompare(b.FollowUpDate || "9999"));
+  const awaiting = D.quotes.filter(q => quoteState(q) === PENDING).sort((a, b) => (a.FollowUpDate || "9999").localeCompare(b.FollowUpDate || "9999"));
   const followDue = awaiting.filter(q => q.FollowUpDate && q.FollowUpDate <= TODAY).length;
   const awaitVal = awaiting.reduce((a, q) => a + num(q.SubtotalEx), 0);
   const ready = jobs.filter(j => j._st === "Completed").map(j => ({ ...j, _v: unbilledValue(j) })).sort((a, b) => b._v.value - a._v.value);
@@ -412,7 +413,7 @@ function viewDash(){
     ${tile("schedule/day", "k-job", "Booked today", today.length, `${techs} technician${techs === 1 ? "" : "s"}`)}
     ${tile("jobs/unscheduled", "k-job", "Unscheduled", unsched.length, hot ? `${hot} urgent or high` : "not booked yet", hot)}
     ${tile("jobs/overdue", "k-job", "Overdue jobs", overdue.length, "past due date", overdue.length)}
-    ${tile("quotes/awaiting", "k-quo", "Quotes awaiting reply", awaiting.length, followDue ? `${followDue} follow-up${followDue === 1 ? "" : "s"} due` : `${kina(awaitVal)} ex GST`, followDue)}
+    ${tile("quotes/awaiting", "k-quo", "Quotes pending approval", awaiting.length, followDue ? `${followDue} follow-up${followDue === 1 ? "" : "s"} due` : `${kina(awaitVal)} ex GST`, followDue)}
     ${tile("invoices/ready", "k-inv", "Ready to invoice", kina(readyVal), `${ready.length} completed job${ready.length === 1 ? "" : "s"} · ex GST`)}
   </div>
   ${noRate ? `<div class="banner">${Math.round(noRate * 10) / 10} billable hour${noRate === 1 ? "" : "s"} on completed jobs ha${noRate === 1 ? "s" : "ve"} no matching labour rate, so ${noRate === 1 ? "it isn't" : "they aren't"} in the "Ready to invoice" value. Check the labour rate codes in Settings.</div>` : ""}
@@ -434,7 +435,7 @@ function viewDash(){
       ${unsched.length ? `<ul class="list">${unsched.slice(0, 8).map(j => jobLi(j, `${priPill(j.Priority)}${j.DueDate ? ` <span class="mono count">${fmtDate(j.DueDate)}</span>` : ""}`)).join("")}</ul>${more(unsched.length, 8, "jobs/unscheduled", "Job Centre")}` : `<div class="empty">No unscheduled jobs</div>`}</div>
     <div class="card"><h3>Overdue jobs</h3>
       ${overdue.length ? `<ul class="list">${overdue.slice(0, 8).map(j => jobLi(j, `${jobPill(j._st)} <span class="mono" style="color:var(--crit)">${fmtDate(j.DueDate)}</span>`)).join("")}</ul>${more(overdue.length, 8, "jobs/overdue", "Job Centre")}` : `<div class="empty">Nothing overdue</div>`}</div>
-    <div class="card"><h3>Quotes awaiting reply</h3>
+    <div class="card"><h3>Quotes pending approval</h3>
       ${awaiting.length ? `<ul class="list">${awaiting.slice(0, 8).map(q => { const due = q.FollowUpDate && q.FollowUpDate <= TODAY, exp = q.ValidUntil && q.ValidUntil < TODAY;
         return `<li data-go="quotes/${encodeURIComponent(q.Title)}"><span class="id">${esc(q.Title)}</span><span class="x">${esc(q.CustomerName || "")}${q.SiteName ? " · " + esc(q.SiteName) : ""}<br><span class="count">${q.SentDate ? "sent " + fmtDate(q.SentDate) : ""}${exp ? " · <b>expired " + fmtDate(q.ValidUntil) + "</b>" : ""}</span></span><span class="mono">${money(q.SubtotalEx)}${q.FollowUpDate ? `<br><span class="${due ? "pill p-warn" : "count"}">${due ? "follow up" : "follow up " + fmtDate(q.FollowUpDate)}</span>` : ""}</span></li>`; }).join("")}</ul>${more(awaiting.length, 8, "quotes/awaiting", "Quotes")}` : `<div class="empty">No quotes waiting on a reply</div>`}</div>
     <div class="card"><h3>Ready to invoice</h3>
@@ -608,7 +609,7 @@ function getPos(){
   });
 }
 function safetyWarnings(j){
-  const tags = overdueTags(techName()), gaps = competencyGaps(techName(), j.JobType);
+  const tags = overdueTags(techName()), gaps = competencyGaps(techName(), j);
   return { tags, gaps, any: tags.length || gaps.length };
 }
 async function startTimer(j){
@@ -796,6 +797,7 @@ function myJobCard(j, a, facts){
   return `<a class="mycard ${priClass(j)}" href="#/my/${encodeURIComponent(j.Title)}">
     <div class="mc-top"><b>${esc(j.Title)}</b>${a ? `<span class="mono">${esc(bookingLine(a))}</span>` : ""}<span class="grow"></span>${t?.job === j.Title ? `<span class="pill p-warn">⏱ ${elapsed(t)}</span>` : ""}${j.Priority && j.Priority !== "Normal" ? priPill(j.Priority) : ""}${jobPill(st)}</div>
     <div class="mc-site">${esc(j.CustomerName || "")}${j.SiteName ? " · " + esc(j.SiteName) : ""}${site?.Town ? `<span class="count"> — ${esc(site.Town)}</span>` : ""}</div>
+    ${a?.LocationOnSite || j.LocationOnSite ? `<div class="count">📍 ${esc(a?.LocationOnSite || j.LocationOnSite)}</div>` : ""}
     ${j.Description ? `<div class="mc-desc">${esc(j.Description)}</div>` : ""}</a>`;
 }
 function viewMy(){
@@ -847,6 +849,7 @@ function viewMyJob(no){
   return back + offlineBanner() + `
   <div class="card myhead ${priClass(j)}"><div class="mc-top"><b class="big">${esc(j.Title)}</b><span class="grow"></span>${j.Priority && j.Priority !== "Normal" ? priPill(j.Priority) : ""}${jobPill(st)}</div>
     <div class="mc-site"><b>${esc(j.CustomerName || "")}</b>${j.SiteName ? " · " + esc(j.SiteName) : ""}</div>
+    ${(() => { const loc = [...new Set([j.LocationOnSite, ...(D.assign || []).filter(x => x.Title === j.Title && x.Technician === techName() && x.AssignStatus !== "Cancelled" && x.AssignDate >= TODAY).map(x => x.LocationOnSite)].filter(Boolean))]; return loc.length ? `<div class="count">📍 ${esc(loc.join(" · "))}</div>` : ""; })()}
     ${site ? `<div class="count">${lines([site.Address, site.Town, site.Province].filter(Boolean).join(", "))}</div>` : ""}
     <div class="myact">${closed ? "" : running ? `<button class="btn primary big" data-stop="${esc(j.Title)}">■ Stop <span class="tel" data-ts="${t.ts}">${elapsed(t)}</span></button>` : `<button class="btn primary big" data-start="${esc(j.Title)}">▶ Start work</button>`}
       ${site && mapUrl(site) ? `<a class="btn big" href="${esc(mapUrl(site))}" target="_blank" rel="noopener">📍 Directions</a>` : ""}${tel ? `<a class="btn big" href="tel:${esc(String(tel).replace(/[^\d+]/g, ""))}">📞 Call</a>` : ""}</div></div>
@@ -938,6 +941,7 @@ function viewSettings(){
       <p class="count" style="margin-top:12px">Set these in <b>Staff &amp; roles</b> below. The role only picks which screens open — SharePoint groups (Owners, ${esc(BRAND.OFFICE_GROUP)}, Visitors) still decide what each person can change.</p></div>
   </div>
   ${companySettings()}
+  ${numberingSettings()}
   ${ratesTable()}
   ${rolesEditor()}
   <div class="bar" style="margin-top:22px"><h2>SharePoint set-up</h2><span class="grow"></span><span class="count">${ready} of ${service.length} Service Hub lists ready</span></div>
@@ -946,7 +950,7 @@ function viewSettings(){
     <div class="tablewrap"><table class="setup"><thead><tr><th>Service Hub list</th><th>Holds</th><th>Status</th></tr></thead><tbody>${service.map(row).join("")}</tbody></table></div>
     <div class="tablewrap" style="align-self:start"><table class="setup"><thead><tr><th>Safety Hub list</th><th>Used for</th><th>Status</th></tr></thead><tbody>${SAFETY_KEYS.map(row).join("")}</tbody></table></div>
   </div>
-  <div class="todo" style="margin-top:20px">Rounding, numbering, checklist templates and job type → course mapping are added with the Settings screen.</div>`;
+  <div class="todo" style="margin-top:20px">Rounding, checklist templates and job type → course mapping are edited in ${esc(CONFIG.LISTS.settings)} for now.</div>`;
 }
 
 /* ---------------- Settings → Staff & roles (edits MJE_Staff: Email, HubRole) ---------------- */
@@ -957,10 +961,12 @@ function rolesEditor(){
   <p class="count" style="margin:-6px 0 12px"><b>M365 email</b> is the address the person signs in with — leave it blank for staff without a Microsoft 365 account (the office enters their time and sign-offs).
     <b>Technician</b> opens My Jobs on the phone; <b>Office</b> and <b>Admin</b> open the office screens (Admin will also edit Settings). Only ${esc(BRAND.SHORT)} site owners can save changes here.
     Staff are added in the Safety Hub (Training → Staff), which has the same fields.</p>
-  <div class="tablewrap"><table class="setup roles"><thead><tr><th>Name</th><th>Position</th><th>Department</th><th>M365 email (sign-in)</th><th>Service Hub role</th></tr></thead><tbody>
+  <div class="tablewrap"><table class="setup roles"><thead><tr><th>Name</th><th>Position</th><th>Department</th><th>M365 email (sign-in)</th><th>Service Hub role</th><th>Team</th><th>Branch</th></tr></thead><tbody>
   ${staff.map(s => `<tr data-sid="${esc(s.id)}"${s === S.me ? ' class="me"' : ""}><td><b>${esc(s.Title)}</b>${s === S.me ? ` <span class="pill p-info">you</span>` : ""}</td><td>${esc(s.Position || "")}</td><td>${esc(s.Department || "")}</td>
     <td><input type="email" data-k="Email" value="${esc(s.Email || "")}" placeholder="name@company" autocomplete="off"></td>
-    <td><select data-k="HubRole">${HUB_ROLES.map(([v, l]) => `<option value="${v}" ${(s.HubRole || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td></tr>`).join("")}
+    <td><select data-k="HubRole">${HUB_ROLES.map(([v, l]) => `<option value="${v}" ${(s.HubRole || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+    ${["Teams","Branches"].map(k => { const key = k === "Teams" ? "Team" : "Branch", cur = s[key] || "", o = [...new Set([...pickList(k), ...(cur ? [cur] : [])])];
+      return `<td><select data-k="${key}"><option value=""></option>${o.map(x => `<option ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></td>`; }).join("")}</tr>`).join("")}
   </tbody></table>${staff.length ? "" : `<div class="empty">No active staff in ${esc(CONFIG.LISTS.staff)}</div>`}</div>`;
 }
 let rolesWarned = false;
@@ -1006,6 +1012,38 @@ const custOpts = () => [...(D.customers || [])].filter(c => c.CustomerStatus !==
 const siteOpts = cust => [...(D.sites || [])].filter(x => x.SiteStatus !== "Inactive" && (!cust || x.CustomerCode === cust)).sort((a, b) => (a.CustomerName || "").localeCompare(b.CustomerName || "") || a.Title.localeCompare(b.Title))
   .map(x => [x.SiteCode, `${x.Title} — ${x.CustomerName || x.CustomerCode} (${x.SiteCode})`]);
 const JOB_TYPES = ["Service / Break-fix","Inspection & Test","Installation","Preventive Maintenance"];
+/* Pick lists the office can change in Settings (one item per line). Blank = these defaults. */
+const PICK_LISTS = {
+  Divisions:   ["Division (trade) of each job and quote", ["Electrical","Fire & Life Safety","CCTV & Security","Access Control","Generators & UPS","Air Conditioning","Lighting","Data & Comms","Solar","Metering","Mechanical & Fleet"]],
+  Teams:       ["Teams (staff and jobs)", ["Electrical","Fire & Security","Building & Facilities","Mechanical"]],
+  Branches:    ["Branches / offices", []],
+  HoldReasons: ["Reasons a job is on hold", ["Awaiting parts","Awaiting client / access","Awaiting PNG Power","Awaiting PO / approval","Other"]],
+  InstructionMethods: ["How the job came in", ["Email","Phone call","Verbal","Purchase order","Work order","Quote approved"]],
+  AssetTypes:  ["Types of customer equipment", ASSET_TYPES.concat(["Vehicle","Fire panel","Fire pump","CCTV system","Access control system"])],
+};
+function pickList(key){
+  const v = setting(key, "");
+  if (!v) return PICK_LISTS[key][1];
+  try { const a = JSON.parse(v); if (Array.isArray(a)) return a.map(x => String(x).trim()).filter(Boolean); } catch {}
+  return v.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+}
+/* Number formats (Settings → Numbering).  {yyyy} = this year, {n} = running number, {n:3} = at least 3 digits.
+   e.g. "MP{n}" -> MP5813 · "{n}" -> 22782 · "Q-{yyyy}-{n:3}" -> Q-2026-014.  The counter is the format without {n}. */
+const NUMBERING = {
+  quote: ["QuoteFormat", "Quote numbers", () => `${setting("QuotePrefix", "Q")}-{yyyy}-{n:3}`],
+  job:   ["JobFormat",   "Job numbers",   () => `${setting("JobPrefix", "J")}-{yyyy}-{n:3}`],
+};
+const numFormat = kind => setting(NUMBERING[kind][0], "") || NUMBERING[kind][2]();
+const numCounter = (fmt, kind) => fmt.replace(/\{yyyy\}/g, YEAR).replace(/[-_/ .]?\{n(:\d+)?\}/g, "") || kind.toUpperCase();
+const numMake = (fmt, n) => fmt.replace(/\{yyyy\}/g, YEAR).replace(/\{n(?::(\d+))?\}/g, (m, w) => String(n).padStart(+w || 0, "0"));
+const numRegex = fmt => new RegExp("^" + fmt.split(/(\{yyyy\}|\{n(?::\d+)?\})/).map(p => p === "{yyyy}" ? YEAR : /^\{n/.test(p) ? "(\\d+)" : p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("") + "$");
+async function nextNumber(kind, existing){ const fmt = numFormat(kind); return takeNumber(numCounter(fmt, kind), n => numMake(fmt, n), numRegex(fmt), existing); }
+// Customer / supplier codes in the style TSM and MYOB use: first 5 letters of the name + 3 digits (ABLEC001)
+function suggestCode(name, used){
+  const stem = (String(name || "").toUpperCase().replace(/[^A-Z0-9]/g, "") + "-----").slice(0, 5), taken = new Set(used.map(x => String(x || "").toUpperCase()));
+  for (let i = 1; i < 1000; i++){ const c = stem + String(i).padStart(3, "0"); if (!taken.has(c)) return c; }
+  return stem + Date.now().toString().slice(-4);
+}
 let FORM_CUST = "", FORM_SITE = "";
 function assetChecks(site, valueStr){
   if (!site) return `<span class="count">Pick a site to choose its equipment</span>`;
@@ -1013,38 +1051,47 @@ function assetChecks(site, valueStr){
   return list.length ? list.map(a => `<label class="apick"><input type="checkbox" data-asset="${esc(a.Title)}" ${sel.includes(a.Title) ? "checked" : ""}> <b>${esc(a.Title)}</b> ${esc([a.AssetType, a.Description].filter(Boolean).join(" — "))}</label>`).join("")
     : `<span class="count">No equipment recorded at this site</span>`;
 }
-function jobChecklistDefault(type){ try { return (JSON.parse(setting("JobTypeChecklists", "{}") || "{}")[type] || []).join("; "); } catch { return ""; } }
+function jobChecklistDefault(type, division){ try { const m = JSON.parse(setting("JobTypeChecklists", "{}") || "{}"); return [...new Set([...(m[type] || []), ...(division ? m[division] || [] : [])])].join("; "); } catch { return ""; } }
 const FORMS = {
-  cust: { list:"customers", name:"Customer", kind:"Customers & Sites · Customer", counter:"C", code:"CustomerCode", prefix:"C-", width:4, sections:[
-    ["Customer", [["Title","Customer name (billing entity)","text",{req:1,w:2}], ["CustomerCode","Customer code","text",{ro:1}], ["TradingName","Trading name","text"],
+  cust: { list:"customers", name:"Customer", kind:"Customers & Sites · Customer", code:"CustomerCode", codeStyle:"myob", sections:[
+    ["Customer", [["Title","Customer name (billing entity)","text",{req:1,w:2}], ["CustomerCode","Customer code (TSM / MYOB)","text",{roEdit:1}], ["TradingName","Trading name","text"],
       ["CustomerType","Type","select",{opts:CUST_TYPES,req:1}], ["CustomerStatus","Status","select",{opts:["Active","On hold","Inactive"],req:1}] ]],
     ["Accounts", [["AccountsContact","Accounts contact","text"], ["Email","Accounts email (invoices go here)","email"], ["Phone","Phone","tel"],
-      ["PaymentTermsDays","Payment terms (days)","number",{min0:1}], ["TIN","TIN","text"], ["BillingAddress","Billing address","textarea",{w:3}] ]],
+      ["PaymentTermsDays","Payment terms (days)","number",{min0:1}], ["CODOnly","Cash on delivery (COD) only?","select",{opts:["No","Yes"]}], ["TIN","TIN","text"], ["BillingAddress","Billing address","textarea",{w:3}] ]],
     ["Notes", [["Notes","Notes","textarea",{w:3}]]] ] },
   site: { list:"sites", name:"Site", kind:"Customers & Sites · Site", counter:"S", code:"SiteCode", prefix:"S-", width:4, sections:[
-    ["Site", [["Title","Site name","text",{req:1,w:2}], ["SiteCode","Site code","text",{ro:1}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}], ["SiteStatus","Status","select",{opts:["Active","Inactive"]}] ]],
+    ["Site", [["Title","Site name","text",{req:1,w:2}], ["SiteCode","Site code","text",{ro:1}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}], ["SiteStatus","Status","select",{opts:["Active","Inactive"]}], ["Branch","Branch","select",{opts:() => pickList("Branches")}] ]],
     ["Location", [["Address","Street address / directions","textarea",{w:3}], ["Town","Town","text"], ["Province","Province","select",{opts:PROVINCES,w:2}],
       ["Latitude","Latitude (e.g. -9.4438)","number"], ["Longitude","Longitude (e.g. 147.1803)","number"], ["_gps","","gps"] ]],
     ["Site contact", [["ContactName","Name","text"], ["ContactPhone","Phone","tel"], ["ContactEmail","Email","email"] ]],
     ["For the technician", [["AccessNotes","Access notes (gate, keys, escort, hours)","textarea",{w:3}], ["SiteHazards","Site hazards","textarea",{w:3}] ]] ] },
   asset: { list:"assets", name:"Equipment", kind:"Customers & Sites · Customer equipment", counter:"A", code:"Title", prefix:"A-", width:4, sections:[
-    ["Equipment", [["Title","Asset code","text",{ro:1}], ["SiteCode","Site","select",{req:1,w:2,opts:() => siteOpts()}], ["AssetType","Type","select",{opts:ASSET_TYPES,req:1}],
+    ["Equipment", [["Title","Asset code","text",{ro:1}], ["SiteCode","Site","select",{req:1,w:2,opts:() => siteOpts()}], ["AssetType","Type","select",{opts:() => pickList("AssetTypes"),req:1}],
       ["Description","Description","text",{w:2}], ["AssetStatus","Status","select",{opts:["In service","Faulty","Decommissioned"]}] ]],
     ["Details", [["Make","Make","text"], ["Model","Model","text"], ["SerialNo","Serial no.","text"], ["RatingSize","Rating / size (e.g. 400 A, 60 kVA)","text"],
       ["LocationOnSite","Location on site","text"], ["InstallDate","Install date","date"], ["WarrantyEnd","Warranty end","date"] ]],
     ["Notes", [["Notes","Notes","textarea",{w:3}]]] ] },
-  quote: { list:"quotes", name:"Quote", kind:"Quotes · Quote", counter:`Q-${YEAR}`, code:"Title", prefix:`Q-${YEAR}-`, width:3, sections:[
+  quote: { list:"quotes", name:"Quote", kind:"Quotes · Quote", code:"Title", numbering:"quote", sections:[
     ["Customer", [["Title","Quote no.","text",{ro:1}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}], ["SiteCode","Site","select",{w:2,opts:() => siteOpts(FORM_CUST)}],
       ["JobType","Job type","select",{opts:JOB_TYPES,req:1}], ["ContactName","Attention (contact name)","text"], ["ContactEmail","Contact email — the quote is emailed here","email",{w:2}] ]],
-    ["Quote", [["QuoteDate","Quote date","date",{req:1}], ["ValidUntil","Valid until","date",{req:1}], ["Scope","Scope of work (printed on the quote)","textarea",{w:3}],
-      ["Terms","Terms (printed on the quote)","textarea",{w:3}], ["Notes","Internal notes (not printed)","textarea",{w:3}] ]] ] },
-  job: { list:"jobs", name:"Job", kind:"Job Centre · Job", counter:`J-${YEAR}`, code:"Title", prefix:`J-${YEAR}-`, width:3, sections:[
+    ["Quote", [["QuoteType","Quote or tender","select",{opts:["Quote","Tender"],req:1}], ["Division","Division","select",{opts:() => pickList("Divisions")}], ["ActionedBy","Actioned by","select",{opts:() => staffOpts()}],
+      ["QuoteDate","Quote date","date",{req:1}], ["ValidUntil","Valid until","date",{req:1}], ["ClosingDate","Tender closing date","date"],
+      ["Scope","Scope of work (printed on the quote)","textarea",{w:3}], ["Terms","Terms (printed on the quote)","textarea",{w:3}], ["Notes","Internal notes (not printed)","textarea",{w:3}] ]],
+    ["Approval", [["ApprovalDate","Approval date","date"], ["ApprovalRef","Approval ref (PO / WO / COD)","text"], ["ApprovedAmountEx","Approved amount (ex GST)","number",{min0:1}] ], {editOnly:1}] ] },
+  job: { list:"jobs", name:"Job", kind:"Job Centre · Job", code:"Title", numbering:"job", sections:[
     ["Customer & site", [["Title","Job no.","text",{ro:1}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}], ["SiteCode","Site","select",{w:2,opts:() => siteOpts(FORM_CUST)}],
-      ["ContactName","On-site contact","text"], ["ContactPhone","Contact phone","tel"], ["AssetCodes","Equipment on this job","assets",{w:3}] ]],
-    ["Job", [["JobType","Job type","select",{opts:JOB_TYPES,req:1}], ["Priority","Priority","select",{opts:PRIORITIES,req:1}], ["CustomerOrderNo","Customer order no.","text"],
+      ["ContactName","On-site contact","text"], ["ContactPhone","Contact phone","tel"], ["LocationOnSite","Location on site (building, floor, room)","text"], ["AssetCodes","Equipment on this job","assets",{w:3}] ]],
+    ["Job", [["JobType","Job type","select",{opts:JOB_TYPES,req:1}], ["Division","Division","select",{opts:() => pickList("Divisions")}], ["Priority","Priority","select",{opts:PRIORITIES,req:1}],
+      ["InstructionMethod","Instruction received by","select",{opts:() => pickList("InstructionMethods")}], ["CustomerOrderNo","Customer order no. (PO / WO)","text"],
       ["DateReceived","Date received","date",{req:1}], ["DueDate","Due date","date"], ["EstimatedHours","Estimated hours","number",{min0:1}], ["Description","Work to do","textarea",{req:1,w:3}] ]],
-    ["Billing", [["BillingBasis","Billing","select",{opts:["Do & charge","Fixed price (quoted)"],req:1}], ["QuotedAmountEx","Fixed price (ex GST)","number",{min0:1}], ["QuoteNo","From quote","text",{ro:1}] ]],
+    ["Who looks after it", [["Branch","Branch","select",{opts:() => pickList("Branches")}], ["Team","Team","select",{opts:() => pickList("Teams")}], ["Supervisor","Supervisor","select",{opts:() => staffOpts()}] ]],
+    ["Billing", [["BillingBasis","Billing","select",{opts:["Do & charge","Fixed price (quoted)"],req:1}], ["QuotedAmountEx","Fixed price (ex GST)","number",{min0:1}], ["COD","Cash on delivery (COD)?","select",{opts:["No","Yes"]}], ["QuoteNo","From quote","text",{ro:1}] ]],
     ["Checklists & notes", [["RequiredChecklists","Required checklists — template names, separated by ;","text",{w:3}], ["InternalNotes","Internal notes (not shown to technicians)","textarea",{w:3}] ]] ] },
+  supp: { list:"supp", name:"Supplier", kind:"Customers & Sites · Supplier", code:"SupplierCode", codeStyle:"myob", sections:[
+    ["Supplier", [["Title","Supplier name","text",{req:1,w:2}], ["SupplierCode","Supplier code (TSM / MYOB)","text",{roEdit:1}], ["Branch","Branch","select",{opts:() => pickList("Branches")}],
+      ["SupplierStatus","Status","select",{opts:["Active","Inactive"]}] ]],
+    ["Contact", [["ContactName","Contact name","text"], ["Phone","Phone","tel"], ["Mobile","Mobile","tel"], ["Email","Email","email",{w:2}], ["Address","Address","textarea",{w:3}] ]],
+    ["Notes", [["Notes","What we buy from them, account no., notes","textarea",{w:3}]]] ] },
   rate: { list:"rates", name:"Labour rate", kind:"Settings · Labour rate", code:"RateCode", manualCode:true, sections:[
     ["Labour rate", [["Title","Labour type (shown on quotes), e.g. Electrician — normal time","text",{req:1,w:2}], ["RateCode","Rate code, e.g. ELEC-NORM","text",{req:1,roEdit:1}],
       ["RateEx","Rate (PGK, ex GST)","number",{req:1,min0:1}], ["RateUnit","Charged per","select",{opts:["Hour","Call-out","Fixed"],req:1}], ["MinChargeHours","Minimum charge (hours)","number",{min0:1}],
@@ -1063,16 +1110,19 @@ function fieldHtml([name, label, type, o = {}], v){
     return `<label class="${cls}">${lab}<select ${attrs}><option value=""></option>${opts.map(([val, txt]) => `<option value="${esc(val)}" ${val === v ? "selected" : ""}>${esc(txt)}</option>`).join("")}</select></label>`;
   }
   const extra = type === "number" ? `step="any" ${o.min0 ? 'min="0"' : ""}` : "";
+  if (o.list){ const id = "dl_" + name, opts = typeof o.list === "function" ? o.list() : o.list;
+    return `<label class="${cls}">${lab}<input type="${type}" ${extra} ${attrs} list="${id}" autocomplete="off" value="${esc(v ?? "")}"><datalist id="${id}">${opts.map(x => `<option value="${esc(x)}">`).join("")}</datalist></label>`; }
   return `<label class="${cls}">${lab}<input type="${type}" ${extra} ${attrs} value="${esc(v ?? "")}"></label>`;
 }
 function readForm(){ const o = {}; $("#dlgBody").querySelectorAll("[name]").forEach(el => { o[el.name] = el.value.trim(); }); return o; }
 const numericFields = kind => new Set(FORMS[kind].sections.flatMap(s => s[1]).filter(f => f[2] === "number").map(f => f[0]));
 function formDefaults(kind){
-  if (kind === "cust") return { CustomerType:"Commercial", CustomerStatus:"Active", PaymentTermsDays: num(setting("PaymentTermsDays", 30)) };
+  if (kind === "cust") return { CustomerType:"Commercial", CustomerStatus:"Active", CODOnly:"No", PaymentTermsDays: num(setting("PaymentTermsDays", 30)) };
+  if (kind === "supp") return { SupplierStatus:"Active", Branch: S.me?.Branch || "" };
   if (kind === "site") return { SiteStatus:"Active", Province:"National Capital District" };
-  if (kind === "quote") return { QuoteDate:TODAY, ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))), JobType:"Service / Break-fix", Terms: setting("QuoteTerms", "") };
+  if (kind === "quote") return { QuoteType:"Quote", QuoteDate:TODAY, ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))), JobType:"Service / Break-fix", Terms: setting("QuoteTerms", ""), ActionedBy: S.me?.Title || "" };
   if (kind === "rate") return { RateUnit:"Hour", RateStatus:"Active" };
-  if (kind === "job") return { DateReceived:TODAY, Priority:"Normal", JobType:"Service / Break-fix", BillingBasis:"Do & charge", RequiredChecklists: jobChecklistDefault("Service / Break-fix") };
+  if (kind === "job") return { DateReceived:TODAY, Priority:"Normal", JobType:"Service / Break-fix", BillingBasis:"Do & charge", COD:"No", Branch: S.me?.Branch || "", Team: S.me?.Team || "", RequiredChecklists: jobChecklistDefault("Service / Break-fix") };
   return { AssetStatus:"In service" };
 }
 let EDIT = null;
@@ -1085,9 +1135,10 @@ function openForm(kind, item, prefill = {}){
   if (kind === "job") setTimeout(bindJobForm);
   $("#dlgKind").textContent = F.kind;
   $("#dlgTitle").textContent = item ? `${item.Title}${F.code !== "Title" && item[F.code] ? " · " + item[F.code] : ""}` : `New ${F.name.toLowerCase()}`;
-  $("#dlgBody").innerHTML = F.sections.map(([leg, fs]) => `<fieldset><legend>${leg}</legend><div class="fg">${fs.map(f => fieldHtml(item && f[3]?.roEdit ? [f[0], f[1], f[2], { ...f[3], ro:1 }] : f, v[f[0]])).join("")}</div>
+  $("#dlgBody").innerHTML = F.sections.filter(sc => item || !sc[2]?.editOnly).map(([leg, fs]) => `<fieldset><legend>${leg}</legend><div class="fg">${fs.map(f => fieldHtml(item && f[3]?.roEdit ? [f[0], f[1], f[2], { ...f[3], ro:1 }] : f, v[f[0]])).join("")}</div>
 </fieldset>`).join("")
-    + (item || F.manualCode ? "" : `<p class="count">The ${F.name.toLowerCase()} ${kind === "quote" ? "number" : "code"} is given when you save.</p>`);
+    + (item || F.manualCode ? "" : F.codeStyle ? `<p class="count">Type the ${F.name.toLowerCase()}'s TSM / MYOB code, or leave it blank and a code is made from the name (e.g. ABLEC001).</p>`
+      : `<p class="count">The ${F.name.toLowerCase()} ${["quote","job"].includes(kind) ? "number" : "code"} is given when you save.</p>`);
   if (kind === "quote") $("[name=CustomerCode]").onchange = e => {
     FORM_CUST = e.target.value; const c = D.customers.find(x => x.CustomerCode === FORM_CUST);
     $("[name=SiteCode]").innerHTML = `<option value=""></option>` + siteOpts(FORM_CUST).map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
@@ -1106,18 +1157,21 @@ function bindJobForm(){
   const syncAssets = () => { $("[name=AssetCodes]").value = [...document.querySelectorAll("#assetPick [data-asset]:checked")].map(x => x.dataset.asset).join("; "); };
   $("#assetPick").onchange = syncAssets;
   $("[name=CustomerCode]").onchange = e => { FORM_CUST = e.target.value; FORM_SITE = "";
+    const cu = D.customers.find(x => x.CustomerCode === FORM_CUST); if (cu && $("[name=COD]")) $("[name=COD]").value = cu.CODOnly === "Yes" ? "Yes" : "No";
     $("[name=SiteCode]").innerHTML = `<option value=""></option>` + siteOpts(FORM_CUST).map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
     $("#assetPick").innerHTML = assetChecks("", ""); syncAssets(); };
   $("[name=SiteCode]").onchange = e => { FORM_SITE = e.target.value; const x = D.sites.find(r => r.SiteCode === FORM_SITE);
     if (x && !$("[name=ContactName]").value) $("[name=ContactName]").value = x.ContactName || "";
     if (x && !$("[name=ContactPhone]").value) $("[name=ContactPhone]").value = x.ContactPhone || "";
+    if (x && $("[name=Branch]") && !$("[name=Branch]").value && x.Branch) $("[name=Branch]").value = x.Branch;
     $("#assetPick").innerHTML = assetChecks(FORM_SITE, ""); syncAssets(); };
-  $("[name=JobType]").onchange = e => { const rc = $("[name=RequiredChecklists]"); if (!EDIT.item && !rc.dataset.touched) rc.value = jobChecklistDefault(e.target.value); };
+  $("[name=JobType]").onchange = $("[name=Division]").onchange = () => { const rc = $("[name=RequiredChecklists]"); if (!EDIT.item && !rc.dataset.touched) rc.value = jobChecklistDefault($("[name=JobType]").value, $("[name=Division]").value); };
   $("[name=RequiredChecklists]").oninput = e => e.target.dataset.touched = "1";
 }
 // Next number from MJE_ServiceNumbers: read, add one, write back only if nobody else changed it (If-Match); retry on a clash.
-async function takeNumber(counter, prefix, width, existing){
-  const fmt = n => prefix + String(n).padStart(width, "0"), re = new RegExp("^" + prefix.replace(/[-]/g, "\\-") + "(\\d+)$");
+async function takeNumber(counter, prefixOrMaker, widthOrRegex, existing){
+  const fmt = typeof prefixOrMaker === "function" ? prefixOrMaker : n => prefixOrMaker + String(n).padStart(widthOrRegex, "0");
+  const re = widthOrRegex instanceof RegExp ? widthOrRegex : new RegExp("^" + String(prefixOrMaker).replace(/[-]/g, "\\-") + "(\\d+)$");
   const maxExisting = existing.reduce((m, v) => { const r = re.exec(v || ""); return r ? Math.max(m, +r[1]) : m; }, 0);
   if (DEMO) return fmt(maxExisting + 1);
   const base = `/sites/${siteId}/lists/${CONFIG.LISTS.numbers}/items`;
@@ -1131,6 +1185,18 @@ async function takeNumber(counter, prefix, width, existing){
   }
   throw new Error("couldn't get the next number because others were saving at the same time — please try again");
 }
+async function setCounter(counter, last){
+  if (DEMO) return;
+  const base = `/sites/${siteId}/lists/${CONFIG.LISTS.numbers}/items`;
+  const j = await graph(`${base}?expand=fields&$filter=fields/Title eq '${counter}'`, { headers:{ Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly" } });
+  if (j.value[0]) await graph(`${base}/${j.value[0].id}/fields`, { method:"PATCH", body: JSON.stringify({ LastNumber:last }) });
+  else await graph(base, { method:"POST", body: JSON.stringify({ fields:{ Title:counter, LastNumber:last } }) });
+}
+async function readCounter(counter){
+  if (DEMO) return null;
+  const j = await graph(`/sites/${siteId}/lists/${CONFIG.LISTS.numbers}/items?expand=fields&$filter=fields/Title eq '${counter}'`, { headers:{ Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly" } });
+  return j.value[0] ? num(j.value[0].fields.LastNumber) : null;
+}
 const norm = v => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
 async function submitForm(e){
   e.preventDefault();
@@ -1139,7 +1205,13 @@ async function submitForm(e){
   if (missing.length){ missing[0].focus(); toast("Please fill in: " + missing.map(m => m.closest("label").innerText.replace(" *", "").trim()).join(", ")); return; }
   const f = readForm();
   // Probably a duplicate? Warn once; a second Save goes ahead.
+  if (F.codeStyle && !item){
+    f[F.code] = f[F.code].toUpperCase().replace(/\s+/g, "");
+    const clash = f[F.code] && list.find(r => norm(r[F.code]) === norm(f[F.code]));
+    if (clash) return toast(`Code ${f[F.code]} is already used by "${clash.Title}"`);
+  }
   const dup = kind === "cust" ? D.customers.find(c => c !== item && norm(c.Title) === norm(f.Title))
+            : kind === "supp" ? D.supp.find(c => c !== item && norm(c.Title) === norm(f.Title))
             : kind === "site" ? D.sites.find(x => x !== item && x.CustomerCode === f.CustomerCode && norm(x.Title) === norm(f.Title))
             : (f.SerialNo ? D.assets.find(a => a !== item && norm(a.SerialNo) === norm(f.SerialNo) && norm(a.Make) === norm(f.Make)) : null);
   if (kind === "rate"){ f.RateCode = f.RateCode.toUpperCase().replace(/\s+/g, "-");
@@ -1167,7 +1239,9 @@ async function submitForm(e){
   if (item) delete out[F.code];
   $("#dlgSave").disabled = true;
   try {
-    if (!item && !F.manualCode) out[F.code] = await takeNumber(F.counter, F.prefix, F.width, list.map(r => r[F.code]));
+    if (!item && F.codeStyle){ if (!out[F.code]) out[F.code] = suggestCode(f.Title, list.map(r => r[F.code])); }
+    else if (!item && F.numbering) out[F.code] = await nextNumber(F.numbering, list.map(r => r[F.code]));
+    else if (!item && !F.manualCode) out[F.code] = await takeNumber(F.counter, F.prefix, F.width, list.map(r => r[F.code]));
     if (!item && kind === "job") out.JobStatus = "New";
     if (!item && kind === "quote"){ out.QuoteStatus = "Draft"; out.PreparedBy = S.me?.Title || account?.name || ""; }
     const saved = DEMO ? { ...(item || { id:"demo" + Date.now() }), ...out } : { ...(item || {}), ...(await saveListItem(CONFIG.LISTS[F.list], item?.id, out)) };
@@ -1176,6 +1250,7 @@ async function submitForm(e){
     $("#dlg").close();
     toast(`Saved ${saved[F.code]}${F.code === "Title" ? "" : " · " + saved.Title}`);
     if (!item && kind === "cust") go("customers", saved.CustomerCode);
+    else if (kind === "supp") render();
     else if (!item && kind === "quote") go("quotes", saved.Title);
     else if (!item && kind === "job") go("jobs", saved.Title);
     else if (!item && kind === "site" && S.route !== "customers") go("site", saved.SiteCode);
@@ -1186,7 +1261,7 @@ async function submitForm(e){
 }
 // After a rename, update the name copies on linked records still in use (issued invoices keep the name they were issued with)
 async function updateCopies(kind, before, after){
-  const live = j => !["Invoiced","Cancelled"].includes(j.JobStatus), liveQ = q => ["Draft","Sent"].includes(q.QuoteStatus), todo = [];
+  const live = j => !["Invoiced","Cancelled"].includes(j.JobStatus), liveQ = q => ["Draft",PENDING].includes(qStatus(q)), todo = [];
   if (kind === "cust" && before.Title !== after.Title){
     const c = after.CustomerCode, n = { CustomerName: after.Title };
     D.sites.filter(x => x.CustomerCode === c).forEach(r => todo.push(["sites", r, n]));
@@ -1242,7 +1317,7 @@ function viewCustomers(){
     .map(([v, l]) => `<button class="chip ${f.status === v ? "on" : ""}" data-cstat="${v}">${l}</button>`).join("");
   return `
   <div class="bar"><h2>Customers &amp; Sites</h2><span class="grow"></span><button class="btn" id="refresh">↻ Refresh</button>
-    <button class="btn" data-new="site">+ New site</button><button class="btn primary" data-new="cust">+ New customer</button></div>
+    <a class="btn" href="#/suppliers">Suppliers</a><button class="btn" data-new="site">+ New site</button><button class="btn primary" data-new="cust">+ New customer</button></div>
   ${notSetUp(ROUTES.customers.lists)}
   <div class="grid kpis">
     <div class="card kpi k-cust"><div class="l">Customers</div><div class="v">${active.length}</div><div class="s">active &amp; on hold</div></div>
@@ -1271,7 +1346,7 @@ function jobsTable(jobs, showSite){
 }
 function quotesTable(quotes, showSite){
   const rows = [...quotes].sort((a, b) => String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true }));
-  const pill = s => s ? `<span class="pill ${{ Draft:"p-grey", Sent:"p-info", Accepted:"p-ok", Declined:"p-bad", Expired:"p-grey" }[s] || "p-grey"}">${esc(s)}</span>` : "";
+  const pill = s => s ? `<span class="pill ${QPILL[Q_OLD[s] || s] || "p-grey"}">${esc(Q_OLD[s] || s)}</span>` : "";
   return `<div class="tablewrap"><table><thead><tr><th>Quote</th>${showSite ? "<th>Site</th>" : ""}<th>Date</th><th>Valid until</th><th>Total ex GST</th><th>Status</th><th>Job</th></tr></thead><tbody>
   ${rows.map(q => `<tr data-go="quotes/${encodeURIComponent(q.Title)}" tabindex="0"><td class="mono"><b>${esc(q.Title)}</b></td>${showSite ? `<td>${esc(q.SiteName || "")}</td>` : ""}<td class="mono">${fmtDate(q.QuoteDate)}</td>
     <td class="mono">${fmtDate(q.ValidUntil)}</td><td class="mono">${money(q.SubtotalEx)}</td><td>${pill(q.QuoteStatus)}</td><td class="mono">${esc(q.JobNo || "")}</td></tr>`).join("")}
@@ -1310,7 +1385,7 @@ function viewCustomer(code){
            ${mode === "Not connected" ? `<p class="count" style="margin-top:8px">MYOB isn't connected yet — the request will wait in the queue until it is.</p>` : ""}`}
       <h3 style="margin-top:18px">At a glance</h3><dl class="kv">
       <dt>Sites</dt><dd>${sites.length}</dd><dt>Open jobs</dt><dd>${[...openBySite.values()].reduce((a, b) => a + b, 0)}</dd>
-      <dt>Quotes awaiting reply</dt><dd>${quotes.filter(q => q.QuoteStatus === "Sent").length}</dd><dt>Jobs all time</dt><dd>${jobs.length}</dd></dl></div>
+      <dt>Quotes pending approval</dt><dd>${quotes.filter(q => quoteState(q) === PENDING).length}</dd><dt>Jobs all time</dt><dd>${jobs.length}</dd></dl></div>
   </div>
   <div class="bar" style="margin-top:22px"><h2>Sites</h2><span class="count">${sites.length}</span></div>
   <div class="tablewrap"><table><thead><tr><th>Code</th><th>Site</th><th>Town / province</th><th>Site contact</th><th>Equipment</th><th>Open jobs</th><th>Status</th></tr></thead><tbody>
@@ -1353,7 +1428,23 @@ function viewSite(){
   <div class="bar" style="margin-top:22px"><h2>Quotes</h2><span class="count">${quotes.length}</span></div>${quotesTable(quotes, false)}`;
 }
 
+/* ---------------- Suppliers (MJE_Suppliers) — picked on materials and parts on order ---------------- */
+S.sq = "";
+function viewSuppliers(){
+  const q = norm(S.sq), rows = (D.supp || []).filter(x => !q || norm([x.Title, x.SupplierCode, x.ContactName, x.Phone, x.Email, x.Branch, x.Notes].join(" ")).includes(q))
+    .sort((a, b) => (a.SupplierStatus === "Inactive") - (b.SupplierStatus === "Inactive") || String(a.Title).localeCompare(String(b.Title)));
+  return `<div class="crumbs"><a href="#/customers">Customers &amp; Sites</a> › Suppliers</div>
+  <div class="bar"><h2>Suppliers</h2><span class="grow"></span><button class="btn" id="refresh">↻ Refresh</button><button class="btn primary" data-new="supp">+ New supplier</button></div>
+  ${notSetUp(ROUTES.suppliers.lists)}
+  <div class="bar"><input type="search" id="supq" placeholder="Search name, code, contact, branch…" value="${esc(S.sq)}"><span class="count">${rows.length} of ${(D.supp || []).length}</span></div>
+  <div class="tablewrap"><table><thead><tr><th>Code</th><th>Supplier</th><th>Contact</th><th>Phone</th><th>Email</th><th>Branch</th><th>Status</th></tr></thead><tbody>
+  ${rows.map(x => `<tr data-edit="supp|${esc(x.id)}" tabindex="0"><td class="mono"><b>${esc(x.SupplierCode || "")}</b></td><td><b>${esc(x.Title)}</b>${x.Notes ? `<br><span class="count">${esc(String(x.Notes).slice(0, 90))}</span>` : ""}</td>
+    <td>${esc(x.ContactName || "")}</td><td>${esc([x.Phone, x.Mobile].filter(Boolean).join(" · "))}</td><td>${x.Email ? `<a href="mailto:${esc(x.Email)}">${esc(x.Email)}</a>` : ""}</td><td>${esc(x.Branch || "")}</td>
+    <td>${x.SupplierStatus === "Inactive" ? `<span class="pill p-grey">Inactive</span>` : `<span class="pill p-ok">Active</span>`}</td></tr>`).join("")}
+  </tbody></table>${rows.length ? "" : `<div class="empty">${(D.supp || []).length ? "No suppliers match" : "No suppliers yet — click <b>+ New supplier</b>"}</div>`}</div>`;
+}
 function bindCustomers(){
+  const sq = $("#supq"); if (sq) sq.oninput = () => { S.sq = sq.value; const pos = sq.selectionStart; render(); const n = $("#supq"); n.focus(); n.setSelectionRange(pos, pos); };
   document.querySelectorAll("[data-new]").forEach(b => b.onclick = () => { const [kind, code] = b.dataset.new.split("|");
     openForm(kind, null, kind === "site" && code ? { CustomerCode: code } : kind === "asset" && code ? { SiteCode: code } : {}); });
   document.querySelectorAll("[data-edit]").forEach(b => { const open = () => { const [kind, id] = b.dataset.edit.split("|"); openForm(kind, D[FORMS[kind].list].find(r => String(r.id) === id)); };
@@ -1400,10 +1491,15 @@ const r2 = v => Math.round((num(v) + Number.EPSILON) * 100) / 100;
 const gstPct = () => num(setting("GSTRatePct", 10));
 const markupPct = () => num(setting("MaterialMarkupPct", 0));
 const followDays = () => num(setting("QuoteFollowUpDays", 7)) || 7;
-const quoteState = q => (q.QuoteStatus === "Sent" && q.ValidUntil && q.ValidUntil < TODAY) ? "Expired" : (q.QuoteStatus || "Draft");
-const QPILL = { Draft:"p-grey", Sent:"p-info", Accepted:"p-ok", Declined:"p-bad", Expired:"p-warn" };
-const qPill = q => { const st = quoteState(q); return `<span class="pill ${QPILL[st] || "p-grey"}">${st}</span>`; };
-const followDue = q => quoteState(q) === "Sent" && q.FollowUpDate && q.FollowUpDate <= TODAY;
+/* Quote statuses in MJE's words. Quotes saved before v2.4 used Sent / Accepted / Declined — they read as the new names. */
+const Q_OLD = { Sent:"Pending approval", Accepted:"Approved", Declined:"Not approved" };
+const PENDING = "Pending approval";
+const qStatus = q => Q_OLD[q.QuoteStatus] || q.QuoteStatus || "Draft";
+const quoteState = q => { const st = qStatus(q); return st === PENDING && q.ValidUntil && q.ValidUntil < TODAY && !(q.ClosingDate && q.ClosingDate >= TODAY) ? "Expired" : st; };
+const QPILL = { Draft:"p-grey", [PENDING]:"p-info", Approved:"p-ok", "Not approved":"p-bad", Cancelled:"p-grey", Expired:"p-warn" };
+const qPill = q => { const st = quoteState(q); return `<span class="pill ${QPILL[st] || "p-grey"}">${st}</span>${q.QuoteType === "Tender" ? ` <span class="pill p-info">Tender</span>` : ""}`; };
+const followDue = q => quoteState(q) === PENDING && q.FollowUpDate && q.FollowUpDate <= TODAY;
+const quoteBase = no => String(no || "").replace(/[A-Z]$/, "");
 const LINE_KINDS = ["Labour","Parts","Fee","Text"];
 const UNIT_OF = { Hour:"hr", "Call-out":"call-out", Fixed:"each" };
 const lineAmount = l => l.LineKind === "Text" ? 0 : r2(num(l.Qty) * num(l.UnitPriceEx));
@@ -1417,23 +1513,23 @@ function totalsOf(ls){
 }
 const quoteLines = no => (D.qlines || []).filter(l => l.Title === no).sort((a, b) => num(a.LineNo) - num(b.LineNo));
 const activeRates = () => [...(D.rates || [])].filter(r => r.RateStatus !== "Retired").sort((a, b) => num(a.SortOrder) - num(b.SortOrder) || String(a.Title).localeCompare(String(b.Title)));
-const sentFields = () => ({ QuoteStatus:"Sent", SentDate:TODAY, FollowUpDate: addDays(TODAY, followDays()) });
+const sentFields = () => ({ QuoteStatus:PENDING, SentDate:TODAY, FollowUpDate: addDays(TODAY, followDays()) });
 
 S.qf = { q:"", status:"open" };
 S.qe = {};                          // unsaved line edits, per quote number
-const Q_FILTERS = [["open","Draft & sent"],["Draft","Draft"],["Sent","Awaiting reply"],["follow","Follow-up due"],["Expired","Expired"],["Accepted","Accepted"],["Declined","Declined"],["all","All"]];
+const Q_FILTERS = [["open","Draft & pending"],["Draft","Draft"],[PENDING,"Pending approval"],["follow","Follow-up due"],["tender","Tenders"],["Expired","Expired"],["Approved","Approved"],["Not approved","Not approved"],["Cancelled","Cancelled"],["all","All"]];
 window.addEventListener("beforeunload", e => { if (Object.values(S.qe).some(x => x.dirty)) { e.preventDefault(); e.returnValue = ""; } });
 
 function viewQuotes(){
-  if (S.param === "awaiting" || S.param === "followup"){ S.qf.status = S.param === "awaiting" ? "Sent" : "follow"; history.replaceState(null, "", "#/quotes"); S.param = ""; }
+  if (S.param === "awaiting" || S.param === "followup"){ S.qf.status = S.param === "awaiting" ? PENDING : "follow"; history.replaceState(null, "", "#/quotes"); S.param = ""; }
   if (S.param) return viewQuote(S.param);
   const f = S.qf, q = norm(f.q);
-  const match = x => { const st = quoteState(x); return f.status === "all" || (f.status === "open" ? ["Draft","Sent"].includes(st) : f.status === "follow" ? followDue(x) : st === f.status); };
-  const rows = D.quotes.filter(x => match(x) && (!q || norm([x.Title, x.CustomerName, x.SiteName, x.Scope, x.ContactName, x.JobNo].join(" ")).includes(q)))
+  const match = x => { const st = quoteState(x); return f.status === "all" || (f.status === "open" ? ["Draft",PENDING].includes(st) : f.status === "follow" ? followDue(x) : f.status === "tender" ? x.QuoteType === "Tender" && ["Draft",PENDING].includes(st) : st === f.status); };
+  const rows = D.quotes.filter(x => match(x) && (!q || norm([x.Title, x.CustomerName, x.SiteName, x.Scope, x.ContactName, x.JobNo, x.ActionedBy, x.Division, x.ApprovalRef].join(" ")).includes(q)))
     .sort((a, b) => String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true }));
-  const drafts = D.quotes.filter(x => quoteState(x) === "Draft"), sent = D.quotes.filter(x => quoteState(x) === "Sent"), due = sent.filter(followDue).length;
-  const yr = D.quotes.filter(x => (x.QuoteDate || "").startsWith(YEAR)), won = yr.filter(x => x.QuoteStatus === "Accepted"), lost = yr.filter(x => x.QuoteStatus === "Declined");
-  const sum = a => a.reduce((t, x) => t + num(x.SubtotalEx), 0);
+  const drafts = D.quotes.filter(x => quoteState(x) === "Draft"), sent = D.quotes.filter(x => quoteState(x) === PENDING), due = sent.filter(followDue).length;
+  const yr = D.quotes.filter(x => (x.QuoteDate || "").startsWith(YEAR)), won = yr.filter(x => qStatus(x) === "Approved"), lost = yr.filter(x => qStatus(x) === "Not approved");
+  const sum = a => a.reduce((t, x) => t + num(x.ApprovedAmountEx || x.SubtotalEx), 0);
   const rate = won.length + lost.length ? Math.round(won.length / (won.length + lost.length) * 100) + "% won" : "no decisions yet";
   return `
   <div class="bar"><h2>Quotes</h2><span class="grow"></span><button class="btn" id="refresh">↻ Refresh</button><button class="btn primary" data-newq="|">+ New quote</button></div>
@@ -1441,18 +1537,18 @@ function viewQuotes(){
   ${!activeRates().length ? `<div class="banner">No labour rates yet — add them in <a href="#/settings"><b>Settings → Labour rates</b></a> so labour lines can be priced from a list.</div>` : ""}
   <div class="grid kpis">
     <div class="card kpi k-quo" role="button" tabindex="0" data-qf="Draft"><div class="l">Drafts</div><div class="v">${drafts.length}</div><div class="s">${kina(sum(drafts))} ex GST</div></div>
-    <div class="card kpi k-quo" role="button" tabindex="0" data-qf="Sent"><div class="l">Awaiting reply</div><div class="v">${sent.length}</div><div class="s">${kina(sum(sent))} ex GST</div></div>
-    <div class="card kpi k-quo ${due ? "alert" : ""}" role="button" tabindex="0" data-qf="follow"><div class="l">Follow-ups due</div><div class="v">${due}</div><div class="s">sent, follow-up date reached</div></div>
-    <div class="card kpi k-quo" role="button" tabindex="0" data-qf="Accepted"><div class="l">Accepted ${YEAR}</div><div class="v">${kina(sum(won))}</div><div class="s">${won.length} quote${won.length === 1 ? "" : "s"} · ${rate}</div></div>
+    <div class="card kpi k-quo" role="button" tabindex="0" data-qf="${PENDING}"><div class="l">Pending approval</div><div class="v">${sent.length}</div><div class="s">${kina(sum(sent))} ex GST</div></div>
+    <div class="card kpi k-quo ${due ? "alert" : ""}" role="button" tabindex="0" data-qf="follow"><div class="l">Follow-ups due</div><div class="v">${due}</div><div class="s">pending, follow-up date reached</div></div>
+    <div class="card kpi k-quo" role="button" tabindex="0" data-qf="Approved"><div class="l">Approved ${YEAR}</div><div class="v">${kina(sum(won))}</div><div class="s">${won.length} quote${won.length === 1 ? "" : "s"} · ${rate}</div></div>
   </div>
   <div class="bar"><input type="search" id="qq" placeholder="Search quote no., customer, site, scope…" value="${esc(f.q)}">
     <span class="chips" style="display:flex;flex-wrap:wrap">${Q_FILTERS.map(([v, l]) => `<button class="chip ${f.status === v ? "on" : ""}" data-qf="${v}">${l}</button>`).join("")}</span>
     <span class="count">${rows.length} of ${D.quotes.length}</span></div>
-  <div class="tablewrap"><table><thead><tr><th>Quote</th><th>Customer · site</th><th>Scope</th><th>Date</th><th>Valid until</th><th>Total inc GST</th><th>Follow up</th><th>Status</th><th>Job</th></tr></thead><tbody>
+  <div class="tablewrap"><table><thead><tr><th>Quote</th><th>Customer · site</th><th>Scope</th><th>Date</th><th>Valid until</th><th>Total inc GST</th><th>Actioned by</th><th>Follow up</th><th>Status</th><th>Job</th></tr></thead><tbody>
   ${rows.map(x => `<tr data-go="quotes/${encodeURIComponent(x.Title)}" tabindex="0"><td class="mono"><b>${esc(x.Title)}</b></td>
     <td><b>${esc(x.CustomerName || "")}</b>${x.SiteName ? `<br><span class="count">${esc(x.SiteName)}</span>` : ""}</td><td class="clip"><div>${esc(x.Scope || "")}</div></td>
-    <td class="mono">${fmtDate(x.QuoteDate)}</td><td class="mono">${fmtDate(x.ValidUntil)}</td><td class="mono">${x.TotalInc != null ? k2(x.TotalInc) : ""}</td>
-    <td>${quoteState(x) === "Sent" && x.FollowUpDate ? (followDue(x) ? `<span class="pill p-warn">Due ${fmtDate(x.FollowUpDate)}</span>` : `<span class="mono count">${fmtDate(x.FollowUpDate)}</span>`) : ""}</td>
+    <td class="mono">${fmtDate(x.QuoteDate)}</td><td class="mono">${fmtDate(x.ValidUntil)}</td><td class="mono">${x.TotalInc != null ? k2(x.TotalInc) : ""}</td><td>${esc(x.ActionedBy || "")}</td>
+    <td>${quoteState(x) === PENDING && x.FollowUpDate ? (followDue(x) ? `<span class="pill p-warn">Due ${fmtDate(x.FollowUpDate)}</span>` : `<span class="mono count">${fmtDate(x.FollowUpDate)}</span>`) : ""}</td>
     <td>${qPill(x)}</td><td class="mono">${esc(x.JobNo || "")}</td></tr>`).join("")}
   </tbody></table>${rows.length ? "" : `<div class="empty">${D.quotes.length ? "No quotes match" : "No quotes yet — click <b>+ New quote</b>"}</div>`}</div>`;
 }
@@ -1485,11 +1581,11 @@ function viewQuote(no){
   const st = quoteState(q), draft = q.QuoteStatus === "Draft";
   const c = D.customers.find(x => x.CustomerCode === q.CustomerCode), site = D.sites.find(x => x.SiteCode === q.SiteCode);
   const b = (act, label, primary) => `<button class="btn ${primary ? "primary" : ""}" data-qact="${act}">${label}</button>`;
-  const actions = draft ? [b("edit","Edit details"), b("print","Print / PDF"), b("email","Email quote"), b("sent","Mark as sent", 1)]
-    : st === "Sent" ? [b("edit","Edit details"), b("print","Print / PDF"), b("email","Email again"), b("follow","Followed up"), b("redraft","Back to draft"), b("declined","Declined"), b("accepted","Accepted", 1)]
-    : st === "Expired" ? [b("print","Print / PDF"), b("redraft","Re-issue (back to draft)"), b("declined","Declined"), b("accepted","Accepted", 1)]
-    : st === "Accepted" ? [b("print","Print / PDF"), q.JobNo ? `<a class="btn primary" href="#/jobs/${encodeURIComponent(q.JobNo)}">Open job ${esc(q.JobNo)}</a>` : b("convert","Convert to job", 1)]
-    : [b("print","Print / PDF"), b("redraft","Back to draft")];
+  const actions = draft ? [b("edit","Edit details"), b("print","Print / PDF"), b("variant","Copy as option"), b("cancel","Cancel"), b("email","Email quote"), b("sent","Mark as sent", 1)]
+    : st === PENDING ? [b("edit","Edit details"), b("print","Print / PDF"), b("email","Email again"), b("follow","Followed up"), b("variant","Copy as option"), b("redraft","Back to draft"), b("cancel","Cancel"), b("declined","Not approved"), b("accepted","Approved", 1)]
+    : st === "Expired" ? [b("print","Print / PDF"), b("redraft","Re-issue (back to draft)"), b("cancel","Cancel"), b("declined","Not approved"), b("accepted","Approved", 1)]
+    : st === "Approved" ? [b("edit","Edit details"), b("print","Print / PDF"), q.JobNo ? `<a class="btn primary" href="#/jobs/${encodeURIComponent(q.JobNo)}">Open job ${esc(q.JobNo)}</a>` : b("convert","Convert to job", 1)]
+    : [b("print","Print / PDF"), b("variant","Copy as option"), b("redraft","Back to draft")];
   const ls = draft ? QE.lines : quoteLines(no);
   return `
   <div class="crumbs"><a href="#/quotes">Quotes</a> › ${esc(q.Title)}</div>
@@ -1500,18 +1596,21 @@ function viewQuote(no){
       <dt>Customer</dt><dd>${c ? `<a href="#/customers/${encodeURIComponent(c.CustomerCode)}">${esc(c.Title)}</a>` : esc(q.CustomerName || "")}</dd>
       <dt>Site</dt><dd>${site ? `<a href="#/site/${encodeURIComponent(site.SiteCode)}">${esc(site.Title)}</a>` : esc(q.SiteName || "—")}</dd>
       <dt>Attention</dt><dd>${esc(q.ContactName || "—")}${q.ContactEmail ? ` · <a href="mailto:${esc(q.ContactEmail)}">${esc(q.ContactEmail)}</a>` : ""}</dd>
-      <dt>Job type</dt><dd>${esc(q.JobType || "—")}</dd>
+      <dt>Job type</dt><dd>${esc(q.JobType || "—")}${q.Division ? ` · ${esc(q.Division)}` : ""}</dd>
+      ${q.QuoteType === "Tender" ? `<dt>Tender closes</dt><dd>${fmtDate(q.ClosingDate) || "—"}</dd>` : ""}
       <dt>Quote date</dt><dd>${fmtDate(q.QuoteDate)}</dd><dt>Valid until</dt><dd>${fmtDate(q.ValidUntil)}${st === "Expired" ? ` <span class="pill p-warn">expired</span>` : ""}</dd>
-      ${q.SentDate ? `<dt>Sent</dt><dd>${fmtDate(q.SentDate)}</dd>` : ""}${st === "Sent" && q.FollowUpDate ? `<dt>Follow up</dt><dd>${fmtDate(q.FollowUpDate)}</dd>` : ""}
-      <dt>Prepared by</dt><dd>${esc(q.PreparedBy || "—")}</dd>
+      ${q.SentDate ? `<dt>Sent</dt><dd>${fmtDate(q.SentDate)}</dd>` : ""}${st === PENDING && q.FollowUpDate ? `<dt>Follow up</dt><dd>${fmtDate(q.FollowUpDate)}</dd>` : ""}
+      <dt>Prepared by</dt><dd>${esc(q.PreparedBy || "—")}</dd>${q.ActionedBy ? `<dt>Actioned by</dt><dd>${esc(q.ActionedBy)}</dd>` : ""}
+      ${q.ApprovalDate || q.ApprovalRef ? `<dt>Approved</dt><dd>${fmtDate(q.ApprovalDate) || ""}${q.ApprovalRef ? ` · ref ${esc(q.ApprovalRef)}` : ""}${q.ApprovedAmountEx != null && q.ApprovedAmountEx !== "" ? ` · ${k2(q.ApprovedAmountEx)} ex GST` : ""}</dd>` : ""}
+      ${(() => { const sib = D.quotes.filter(x => x !== q && quoteBase(x.Title) === quoteBase(q.Title)); return sib.length ? `<dt>Other options</dt><dd>${sib.map(x => `<a href="#/quotes/${encodeURIComponent(x.Title)}">${esc(x.Title)}</a> (${quoteState(x)})`).join(", ")}</dd>` : ""; })()}
       ${q.JobNo ? `<dt>Job</dt><dd><a href="#/jobs/${encodeURIComponent(q.JobNo)}">${esc(q.JobNo)}</a></dd>` : ""}
-      ${q.DeclineReason ? `<dt>Declined because</dt><dd>${lines(q.DeclineReason)}</dd>` : ""}</dl></div>
+      ${q.DeclineReason ? `<dt>${qStatus(q) === "Cancelled" ? "Cancelled" : "Not approved"} because</dt><dd>${lines(q.DeclineReason)}</dd>` : ""}</dl></div>
     <div class="card"><h3>Scope of work</h3><div>${lines(q.Scope) || `<span class="count">No scope written yet — use Edit details.</span>`}</div>
       ${q.Notes ? `<h3 style="margin-top:16px">Internal notes</h3><div class="count">${lines(q.Notes)}</div>` : ""}</div>
   </div>
   <div class="bar" style="margin-top:22px"><h2>Lines</h2><span class="grow"></span>
     ${draft ? `<button class="btn" data-addl="Labour">+ Labour</button><button class="btn" data-addl="Parts">+ Parts</button><button class="btn" data-addl="Fee">+ Fee</button><button class="btn" data-addl="Text">+ Heading / note</button>`
-      : `<span class="count">Lines are locked once the quote is sent${st === "Accepted" || st === "Declined" ? " or decided" : " — use Back to draft to change them"}.</span>`}</div>
+      : `<span class="count">Lines are locked once the quote is sent${["Approved","Not approved","Cancelled"].includes(st) ? " or decided" : " — use Back to draft to change them"}.</span>`}</div>
   ${draft ? `<div class="tablewrap"><table class="qlines" id="qlines"><thead><tr><th>Type</th><th>Description</th><th>Qty</th><th>Unit</th><th title="Never printed">Cost (internal)</th><th>Unit price ex GST</th><th>Tax</th><th>Amount</th><th></th></tr></thead>
       <tbody>${linesBody(ls)}</tbody></table></div>
       <div id="qtot">${totalsHtml(ls, true)}</div>
@@ -1611,11 +1710,15 @@ function quoteAction(q, act){
   if (act === "print"){ if (S.qe[q.Title]?.dirty) return toast("Save the lines first"); return printDoc(quotePrintHtml(q), q.Title); }
   if (act === "email"){ if (quoteReady(q)) openEmail(q); return; }
   if (act === "sent"){ if (quoteReady(q)) setQuote(q, sentFields(), `${q.Title} marked as sent — follow up on ${fmtDate(addDays(TODAY, followDays()))}`); return; }
-  if (act === "accepted") return setQuote(q, { QuoteStatus:"Accepted" }, `${q.Title} accepted — use Convert to job to start the work`);
+  if (act === "accepted") return openApproval(q);
+  if (act === "variant") return openVariant(q);
+  if (act === "cancel") return openDialog({ cls:"f-quo", kind:"Quotes · Cancel", title:`Cancel ${q.Title}`, save:"Cancel the quote",
+    body:`<fieldset><legend>Why is it cancelled?</legend><div class="fg"><label class="fld w3"><span>Reason</span><textarea name="reason" placeholder="e.g. replaced by option B, raised in error, client withdrew the enquiry"></textarea></label></div></fieldset>`,
+    onSubmit: async () => { $("#dlg").close(); await setQuote(q, { QuoteStatus:"Cancelled", DeclineReason: val("reason") || null }, `${q.Title} cancelled`); } });
   if (act === "redraft") return setQuote(q, { QuoteStatus:"Draft", ...(quoteState(q) === "Expired" ? { ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))) } : {}) }, `${q.Title} is back in draft`);
-  if (act === "declined") return openDialog({ cls:"f-quo", kind:"Quotes · Declined", title:`${q.Title} declined`, save:"Mark as declined",
-    body:`<fieldset><legend>Why was it declined?</legend><div class="fg"><label class="fld w3"><span>Reason (helps with future quotes)</span><textarea name="reason" placeholder="e.g. went with another contractor, price, timing, project cancelled"></textarea></label></div></fieldset>`,
-    onSubmit: async () => { $("#dlg").close(); await setQuote(q, { QuoteStatus:"Declined", DeclineReason: val("reason") || null }, `${q.Title} marked as declined`); } });
+  if (act === "declined") return openDialog({ cls:"f-quo", kind:"Quotes · Not approved", title:`${q.Title} not approved`, save:"Mark as not approved",
+    body:`<fieldset><legend>Why wasn't it approved?</legend><div class="fg"><label class="fld w3"><span>Reason (helps with future quotes)</span><textarea name="reason" placeholder="e.g. went with another contractor, price, timing, project cancelled"></textarea></label></div></fieldset>`,
+    onSubmit: async () => { $("#dlg").close(); await setQuote(q, { QuoteStatus:"Not approved", DeclineReason: val("reason") || null }, `${q.Title} marked as not approved`); } });
   if (act === "follow") return openDialog({ cls:"f-quo", kind:"Quotes · Follow-up", title:`Followed up ${q.Title}`, save:"Save",
     body:`<fieldset><legend>Follow-up</legend><div class="fg"><label class="fld w2"><span>What did they say?</span><input name="note" placeholder="e.g. Still deciding, call back next week"></label>
       <label class="fld"><span class="req">Next follow-up</span><input type="date" name="next" required value="${addDays(TODAY, followDays())}"></label></div></fieldset>`,
@@ -1624,7 +1727,37 @@ function quoteAction(q, act){
   if (act === "convert") return openConvert(q);
 }
 
-// ---- convert an accepted quote into a job
+// ---- approval: date, the client's reference (PO / WO / COD) and the amount approved
+const approvalFields = (q, t) => ({ QuoteStatus:"Approved", ApprovalDate: q.ApprovalDate || TODAY, ApprovedAmountEx: q.ApprovedAmountEx ?? t.sub });
+function openApproval(q){
+  const t = totalsOf(quoteLines(q.Title));
+  openDialog({ cls:"f-quo", kind:"Quotes · Approved", title:`${q.Title} approved`, save:"Mark as approved",
+    body:`<fieldset><legend>Approval</legend><div class="fg">
+      <label class="fld"><span class="req">Approval date</span><input type="date" name="adate" required value="${esc(q.ApprovalDate || TODAY)}"></label>
+      <label class="fld"><span>Approval ref (PO / WO / COD)</span><input name="aref" value="${esc(q.ApprovalRef || "")}"></label>
+      <label class="fld"><span>Approved amount (ex GST)</span><input type="number" step="any" min="0" name="amt" value="${esc(q.ApprovedAmountEx ?? t.sub)}"></label></div></fieldset>
+      <p class="count">Quoted ${k2(t.sub)} ex GST. Change the amount if the client approved part of the quote. Next, use <b>Convert to job</b> to start the work.</p>`,
+    onSubmit: async () => { $("#dlg").close();
+      await setQuote(q, { QuoteStatus:"Approved", ApprovalDate: val("adate"), ApprovalRef: val("aref") || null, ApprovedAmountEx: val("amt") === "" ? null : r2(val("amt")) }, `${q.Title} approved`); } });
+}
+// ---- another option of the same quote: MP5813 -> MP5813A -> MP5813B. Lines are copied into the editor; click Save lines.
+async function openVariant(q){
+  if (S.qe[q.Title]?.dirty) return toast("Save the lines first");
+  const base = quoteBase(q.Title), used = new Set(D.quotes.map(x => x.Title));
+  let letter = "A"; while (used.has(base + letter) && letter < "Z") letter = String.fromCharCode(letter.charCodeAt(0) + 1);
+  if (used.has(base + letter)) return toast("No more option letters left for " + base);
+  const no = base + letter, keep = ["CustomerCode","CustomerName","SiteCode","SiteName","JobType","Division","QuoteType","ContactName","ContactEmail","Scope","Terms","ClosingDate"];
+  const nq = { Title:no, QuoteStatus:"Draft", QuoteDate:TODAY, ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))), PreparedBy: S.me?.Title || account?.name || "", ActionedBy: q.ActionedBy || S.me?.Title || "",
+    Notes:`Option ${letter} of ${q.Title}` };
+  keep.forEach(k => { if (q[k] != null && q[k] !== "") nq[k] = q[k]; });
+  try {
+    const saved = DEMO ? { id:"demo" + Date.now(), ...nq } : await saveListItem(CONFIG.LISTS.quotes, null, nq);
+    D.quotes.push({ ...nq, ...saved });
+    S.qe[no] = { lines: quoteLines(q.Title).map(({ id, Title, ...l }) => ({ ...l })), removed: [], dirty: true };
+    toast(`Created ${no} — the lines are copied: change them and click Save lines`); go("quotes", no);
+  } catch(e){ toast(isForbidden(e) ? `You don't have permission to change quotes — they're for the ${BRAND.SHORT} office.` : "Couldn't create the option: " + e.message); }
+}
+// ---- convert an approved quote into a job
 function openConvert(q){
   if (!quoteReady(q)) return;
   const ls = quoteLines(q.Title), t = totalsOf(ls);
@@ -1634,17 +1767,20 @@ function openConvert(q){
       <label class="fld"><span>Priority</span><select name="pri">${PRIORITIES.map(p => `<option ${p === "Normal" ? "selected" : ""}>${p}</option>`).join("")}</select></label>
       <label class="fld"><span>Due date</span><input type="date" name="due"></label>
       <label class="fld"><span>Customer order no.</span><input name="po"></label></div></fieldset>
-      <p class="count">The job gets this quote's customer, site, contact, job type and scope of work, and the quote is marked Accepted.</p>`,
+      <p class="count">The job gets this quote's customer, site, contact, job type, division and scope of work, and the quote is marked Approved.</p>`,
     onSubmit: async () => {
-      const no = await takeNumber(`J-${YEAR}`, `J-${YEAR}-`, 3, (D.jobs || []).map(j => j.Title));
+      const no = await nextNumber("job", (D.jobs || []).map(j => j.Title));
       const hrs = ls.filter(l => l.LineKind === "Labour" && (l.Unit || "hr") === "hr").reduce((a, l) => a + num(l.Qty), 0);
       const job = { Title:no, JobType: q.JobType || "Service / Break-fix", Priority: val("pri") || "Normal", JobStatus:"New", CustomerCode:q.CustomerCode, CustomerName:q.CustomerName,
         SiteCode:q.SiteCode, SiteName:q.SiteName, QuoteNo:q.Title, Description:q.Scope, CustomerOrderNo: val("po"), ContactName:q.ContactName, DateReceived:TODAY,
-        DueDate: val("due"), EstimatedHours: hrs || null, BillingBasis: val("basis"), QuotedAmountEx: t.sub };
+        DueDate: val("due"), EstimatedHours: hrs || null, BillingBasis: val("basis"), QuotedAmountEx: q.ApprovedAmountEx ?? t.sub,
+        Division: q.Division, InstructionMethod: "Quote approved", Branch: S.me?.Branch, Team: S.me?.Team,
+        COD: D.customers.find(c => c.CustomerCode === q.CustomerCode)?.CODOnly === "Yes" || /cod/i.test(q.ApprovalRef || "") ? "Yes" : "No" };
+      if (!q.ApprovalRef && val("po")) job.CustomerOrderNo = val("po"); else if (q.ApprovalRef && !val("po")) job.CustomerOrderNo = q.ApprovalRef;
       Object.keys(job).forEach(k => { if (job[k] === "" || job[k] == null) delete job[k]; });
       const saved = DEMO ? { id:"demo" + Date.now(), ...job } : await saveListItem(CONFIG.LISTS.jobs, null, job);
       D.jobs.push({ ...job, ...saved }); $("#dlg").close();
-      if (await setQuote(q, { QuoteStatus:"Accepted", JobNo:no }, `Created job ${no} from ${q.Title}`)) go("jobs", no);
+      if (await setQuote(q, { ...approvalFields(q, t), JobNo:no }, `Created job ${no} from ${q.Title}`)) go("jobs", no);
     } });
 }
 
@@ -1764,6 +1900,58 @@ function companySettings(){
       <dt>Quote terms</dt><dd>${v("QuoteTerms") ? `<span class="count">${lines(v("QuoteTerms"))}</span>` : `<span class="count">none</span>`}</dd></dl></div>
   </div>`;
 }
+// ---- Numbering (quote and job number formats, next number) and the pick lists
+function numberingSettings(){
+  const ex = k => numMake(numFormat(k), k === "quote" ? 5813 : 22782);
+  return `<div class="bar" style="margin-top:22px"><h2>Numbering &amp; lists</h2><span class="grow"></span>${isAdmin() ? `<button class="btn" id="editNumbering">Edit</button>` : ""}</div>
+  <div class="grid two">
+    <div class="card"><h3>Numbers</h3><dl class="kv">
+      <dt>Quotes</dt><dd class="mono">${esc(numFormat("quote"))} <span class="count">e.g. ${esc(ex("quote"))} · options add A, B, C</span></dd>
+      <dt>Jobs</dt><dd class="mono">${esc(numFormat("job"))} <span class="count">e.g. ${esc(ex("job"))}</span></dd>
+      <dt>Customers &amp; suppliers</dt><dd><span class="count">TSM / MYOB code typed in, or made from the name (ABLEC001)</span></dd></dl></div>
+    <div class="card"><h3>Pick lists</h3><dl class="kv">${Object.entries(PICK_LISTS).map(([k, [l]]) => `<dt>${esc(l)}</dt><dd>${pickList(k).length ? esc(pickList(k).join(" · ")) : `<span class="count">none yet</span>`}</dd>`).join("")}</dl></div>
+  </div>`;
+}
+async function saveSettings(pairs){
+  let n = 0;
+  for (const [k, nv] of pairs){
+    const row = D.settings.find(r => r.Title === k);
+    if ((row?.SettingValue ?? "") === nv || (!row && nv === "")) continue;
+    if (DEMO) { if (row) row.SettingValue = nv; else D.settings.push({ id:"demo" + k, Title:k, SettingValue:nv }); n++; continue; }
+    const saved = await saveListItem(CONFIG.LISTS.settings, row?.id || null, row ? { SettingValue: nv || null } : { Title:k, SettingValue:nv });
+    if (row) row.SettingValue = nv; else D.settings.push({ ...saved, Title:k, SettingValue:nv }); n++;
+  }
+  return n;
+}
+async function openNumbering(){
+  const cur = {};
+  for (const k of ["quote","job"]){ const fmt = numFormat(k); try { cur[k] = await readCounter(numCounter(fmt, k)); } catch { cur[k] = null; } }
+  const nf = (k, label) => `<label class="fld"><span class="req">${label} format</span><input name="fmt_${k}" required value="${esc(numFormat(k))}"></label>
+    <label class="fld"><span>Next ${label.toLowerCase().replace(/s$/, "")} number</span><input type="number" min="1" step="1" name="next_${k}" placeholder="${cur[k] != null ? cur[k] + 1 : "after the highest in use"}"></label>
+    <div class="fld"><span>Example</span><b class="mono" id="ex_${k}"></b></div>`;
+  openDialog({ kind:"Settings · Numbering & lists", title:"Numbering & pick lists",
+    body:`<fieldset><legend>Numbers</legend><div class="fg">${nf("quote", "Quotes")}${nf("job", "Jobs")}</div>
+      <p class="count"><b>{n}</b> is the running number, <b>{n:3}</b> pads it to 3 digits, <b>{yyyy}</b> is the year (a new count each year). ${esc(BRAND.SHORT)}'s TSM style: quotes <b>MP{n}</b>, jobs <b>{n}</b>.
+      Leave <i>Next number</i> blank to carry on from the counter. A number already in use is never given again.</p></fieldset>
+      <fieldset><legend>Pick lists — one per line</legend><div class="fg">${Object.entries(PICK_LISTS).map(([k, [l]]) =>
+        `<label class="fld"><span>${esc(l)}</span><textarea name="pl_${k}" rows="6">${esc(pickList(k).join("\n"))}</textarea></label>`).join("")}</div>
+      <p class="count">Removing an item doesn't change jobs that already use it. Only ${esc(BRAND.SHORT)} site owners can save these.</p></fieldset>`,
+    onSubmit: async () => {
+      const pairs = [], bad = ["quote","job"].find(k => !/\{n(:\d+)?\}/.test(val("fmt_" + k)));
+      if (bad) return toast(`The ${bad} format needs {n} for the running number`);
+      for (const k of ["quote","job"]) pairs.push([NUMBERING[k][0], val("fmt_" + k) === NUMBERING[k][2]() && !setting(NUMBERING[k][0], "") ? "" : val("fmt_" + k)]);
+      for (const k of Object.keys(PICK_LISTS)){ const lines = val("pl_" + k).split(/\r?\n/).map(x => x.trim()).filter(Boolean), same = lines.join("\n") === PICK_LISTS[k][1].join("\n");
+        pairs.push([k, same && !setting(k, "") ? "" : lines.join("\n")]); }
+      try {
+        const n = await saveSettings(pairs); let c = 0;
+        for (const k of ["quote","job"]) if (val("next_" + k)){ await setCounter(numCounter(val("fmt_" + k), k), Math.max(0, Math.floor(num(val("next_" + k))) - 1)); c++; }
+        $("#dlg").close(); render(); toast(n + c ? `Saved${n ? ` ${n} setting${n === 1 ? "" : "s"}` : ""}${c ? `${n ? " and" : ""} ${c} next number${c === 1 ? "" : "s"}` : ""}` : "Nothing changed");
+      } catch(e){ toast(isForbidden(e) ? `Only ${BRAND.SHORT} site owners can change settings.` : "Couldn't save: " + e.message); }
+    } });
+  const ex = () => $("#ex_quote") && ["quote","job"].forEach(k => { const f = val("fmt_" + k), n = val("next_" + k) || (cur[k] != null ? cur[k] + 1 : 1); $("#ex_" + k).textContent = /\{n/.test(f) ? numMake(f, n) : "needs {n}"; });
+  $("#dlgBody").oninput = ex; ex();
+}
+
 function ratesTable(){
   const rs = [...(D.rates || [])].sort((a, b) => (a.RateStatus === "Retired") - (b.RateStatus === "Retired") || num(a.SortOrder) - num(b.SortOrder) || String(a.Title).localeCompare(String(b.Title)));
   return `<div class="bar" style="margin-top:22px"><h2>Labour rates</h2><span class="grow"></span>${isAdmin() ? `<button class="btn primary" data-new="rate">+ New rate</button>` : ""}</div>
@@ -1774,6 +1962,7 @@ function ratesTable(){
   ${isAdmin() ? "" : `<p class="count">Only Admins can change rates and company details.</p>`}`;
 }
 function bindSettings(){
+  if ($("#editNumbering")) $("#editNumbering").onclick = openNumbering;
   const b = $("#editCompany"); if (!b) return;
   b.onclick = () => openDialog({ kind:"Settings · Company & quotes", title:"Company & quote defaults",
     body:`<fieldset><legend>Company &amp; quotes</legend><div class="fg">${COMPANY_KEYS.map(([k, l, t, w]) =>
@@ -1782,14 +1971,7 @@ function bindSettings(){
       <p class="count">Only ${esc(BRAND.SHORT)} site owners can save these.</p>`,
     onSubmit: async () => {
       const box = val("AccountsMailbox"); if (box && !EMAIL_RE.test(box)) return toast(`"${box}" doesn't look like an email address`);
-      let n = 0;
-      for (const [k] of COMPANY_KEYS){
-        const nv = $(`#dlgBody [name="${k}"]`).value.trim(), row = D.settings.find(r => r.Title === k);
-        if ((row?.SettingValue ?? "") === nv || (!row && nv === "")) continue;
-        if (DEMO) { if (row) row.SettingValue = nv; else D.settings.push({ id:"demo" + k, Title:k, SettingValue:nv }); n++; continue; }
-        const saved = await saveListItem(CONFIG.LISTS.settings, row?.id || null, row ? { SettingValue: nv || null } : { Title:k, SettingValue:nv });
-        if (row) row.SettingValue = nv; else D.settings.push({ ...saved, Title:k, SettingValue:nv }); n++;
-      }
+      const n = await saveSettings(COMPANY_KEYS.map(([k]) => [k, $(`#dlgBody [name="${k}"]`).value.trim()]));
       $("#dlg").close(); render(); toast(n ? `Saved ${n} setting${n === 1 ? "" : "s"}` : "Nothing changed");
     } });
 }
@@ -1799,7 +1981,7 @@ function bindSettings(){
    ===================================================================== */
 const JOB_TABS = [["details","Details"],["schedule","Schedule"],["time","Time"],["materials","Materials"],["notes","Notes & Photos"],["checklists","Checklists"],["safety","Safety"],["invoice","Invoice"]];
 const J_FILTERS = [["open","Open"],["unscheduled","Unscheduled"],["Scheduled","Scheduled"],["In Progress","In progress"],["On Hold","On hold"],["overdue","Overdue"],["Completed","Completed"],["Invoiced","Invoiced"],["Cancelled","Cancelled"],["all","All"]];
-S.jf = { q:"", status:"open", type:"" };
+S.jf = { q:"", status:"open", type:"", division:"", team:"", branch:"", sup:"" };
 const me = () => S.me?.Title || account?.name || "";
 const hoursBetween = (s, e) => { if (!s || !e) return 0; const [a, b] = s.split(":").map(Number), [c, d] = e.split(":").map(Number); let m = (c * 60 + d) - (a * 60 + b); if (m < 0) m += 1440; return Math.round(m / 60 * 100) / 100; };
 function roundBillable(h){
@@ -1829,8 +2011,11 @@ const staffOpts = () => { const t = technicians(), others = S.staff.filter(s => 
 
 // ---- safety links: competency (MJE_Training) and test & tag (MJE_TestTag)
 function courseMap(){ try { return JSON.parse(setting("JobTypeCourses", "{}") || "{}"); } catch { return {}; } }
-function competencyGaps(tech, jobType, onDate = TODAY){
-  const courses = courseMap()[jobType] || [];
+// Courses needed for a job: those set for its job type plus those set for its division (Settings → JobTypeCourses). Takes a job or a job type.
+function jobCourses(j){ const m = courseMap(), t = typeof j === "string" ? j : j?.JobType, d = typeof j === "string" ? "" : j?.Division;
+  return [...new Set([...(m[t] || []), ...(d ? m[d] || [] : [])])]; }
+function competencyGaps(tech, job, onDate = TODAY){
+  const courses = jobCourses(job);
   return courses.map(c => { const r = (D.trn || []).find(t => t.StaffName === tech && t.Course === c);
     if (!r || !r.CompletedDate) return `${c} — not recorded`;
     if (r.ExpiryDate && r.ExpiryDate < onDate) return `${c} — expired ${fmtDate(r.ExpiryDate)}`;
@@ -1859,7 +2044,8 @@ function viewJobs(){
   const techsOn = no => [...new Set(D.assign.filter(a => a.Title === no && a.AssignStatus !== "Cancelled" && (a.AssignDate || "") >= TODAY).map(a => a.Technician))];
   const isOpen = j => !CLOSED.includes(j._st), overdue = j => isOpen(j) && j.DueDate && j.DueDate < TODAY;
   const match = j => f.status === "all" || (f.status === "open" ? isOpen(j) : f.status === "unscheduled" ? j._st === "New" : f.status === "overdue" ? overdue(j) : j._st === f.status);
-  const rows = jobs.filter(j => match(j) && (!f.type || j.JobType === f.type) && (!q || norm([j.Title, j.CustomerName, j.SiteName, j.Description, j.CustomerOrderNo, j.QuoteNo, techsOn(j.Title).join(" ")].join(" ")).includes(q)))
+  const by = j => (!f.type || j.JobType === f.type) && (!f.division || j.Division === f.division) && (!f.team || j.Team === f.team) && (!f.branch || j.Branch === f.branch) && (!f.sup || j.Supervisor === f.sup);
+  const rows = jobs.filter(j => match(j) && by(j) && (!q || norm([j.Title, j.CustomerName, j.SiteName, j.Description, j.CustomerOrderNo, j.QuoteNo, j.LocationOnSite, j.LatestUpdate, j.PartsOnOrder, techsOn(j.Title).join(" ")].join(" ")).includes(q)))
     .sort((a, b) => f.status === "overdue" ? a.DueDate.localeCompare(b.DueDate) : isOpen(a) && isOpen(b) ? byUrgency(a, b) : String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true }));
   const open = jobs.filter(isOpen), ready = jobs.filter(j => j._st === "Completed"), readyVal = ready.reduce((t, j) => t + unbilledValue(j).value, 0);
   const tile = (st, label, v, sub, alert) => `<div class="card kpi k-job ${alert ? "alert" : ""}" role="button" tabindex="0" data-jf="${st}"><div class="l">${label}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
@@ -1875,13 +2061,17 @@ function viewJobs(){
   </div>
   <div class="bar"><input type="search" id="jq" placeholder="Search job no., customer, site, description, order no., technician…" value="${esc(f.q)}">
     <select class="f" id="jtype"><option value="">All job types</option>${JOB_TYPES.map(t => `<option ${t === f.type ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+    ${[["division","All divisions",pickList("Divisions")],["team","All teams",pickList("Teams")],["branch","All branches",pickList("Branches")],
+       ["sup","All supervisors",[...new Set(D.jobs.map(j => j.Supervisor).filter(Boolean))].sort()]].filter(([k, , o]) => o.length || f[k])
+      .map(([k, all, o]) => `<select class="f" data-jsel="${k}" aria-label="${all}"><option value="">${all}</option>${[...new Set([...o, ...(f[k] ? [f[k]] : [])])].map(x => `<option ${x === f[k] ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`).join("")}
     <span class="count">${rows.length} of ${jobs.length}</span></div>
   <div class="bar chips" style="display:flex;flex-wrap:wrap">${J_FILTERS.map(([v, l]) => `<button class="chip ${f.status === v ? "on" : ""}" data-jf="${v}">${l}</button>`).join("")}</div>
-  <div class="tablewrap"><table class="jobs"><thead><tr><th>Job</th><th>Customer · site</th><th>Description</th><th>Type</th><th>Priority</th><th>Booked</th><th>Due</th><th>Status</th><th>Change</th></tr></thead><tbody>
+  <div class="tablewrap"><table class="jobs"><thead><tr><th>Job</th><th>Customer · site</th><th>Description</th><th>Latest update</th><th>Type</th><th>Priority</th><th>Booked</th><th>Due</th><th>Status</th><th>Change</th></tr></thead><tbody>
   ${rows.map(j => { const nb = nextBooking.get(j.Title), techs = techsOn(j.Title), od = overdue(j);
     return `<tr data-go="jobs/${encodeURIComponent(j.Title)}" tabindex="0"><td class="mono"><b>${esc(j.Title)}</b>${j.QuoteNo ? `<br><span class="count">${esc(j.QuoteNo)}</span>` : ""}</td>
     <td><b>${esc(j.CustomerName || "")}</b>${j.SiteName ? `<br><span class="count">${esc(j.SiteName)}</span>` : ""}</td><td class="clip"><div>${esc(j.Description || "")}</div></td>
-    <td>${esc(j.JobType || "")}</td><td>${priPill(j.Priority)}</td>
+    <td class="clip"><div>${j._st === "On Hold" && j.OnHoldReason ? `<b>${esc(j.OnHoldReason)}</b>${j.PartsETA ? ` · ETA ${fmtDate(j.PartsETA)}` : ""}<br>` : ""}${esc(j.LatestUpdate || "")}${j.LatestUpdateDate ? ` <span class="count">${fmtDate(j.LatestUpdateDate)}</span>` : ""}</div></td>
+    <td>${esc(j.JobType || "")}${j.Division ? `<br><span class="count">${esc(j.Division)}</span>` : ""}</td><td>${priPill(j.Priority)}</td>
     <td>${nb ? `<span class="mono">${fmtDate(nb.AssignDate)}</span>${techs.length ? `<br><span class="count">${esc(techs.join(", "))}</span>` : ""}` : `<span class="count">—</span>`}</td>
     <td class="mono" ${od ? 'style="color:var(--crit);font-weight:600"' : ""}>${fmtDate(j.DueDate)}</td><td>${jobPill(j._st)}</td>
     <td class="nogo">${["Invoiced"].includes(j._st) ? "" : `<select class="qs" data-qs="${esc(j.Title)}" aria-label="Change status of ${esc(j.Title)}"><option value="">…</option>
@@ -1893,14 +2083,41 @@ function viewJobs(){
 function setJobStatus(j, act){
   if (act === "resume"){
     const st = jobState({ ...j, JobStatus:"" }, jobFacts());
-    return saveRow("jobs", j, { JobStatus: st, OnHoldReason:"", CancelReason:"" }).then(() => { toast(`${j.Title} is ${st.toLowerCase()} again`); render(); })
+    return saveRow("jobs", j, { JobStatus: st, OnHoldReason:"", CancelReason:"", PartsOnOrder:"", PartsSupplier:"", PartsETA:"" }).then(() => addUpdate(j, `${j.JobStatus === "Cancelled" ? "Reopened" : "Resumed"} — now ${st}`, true)).then(() => { toast(`${j.Title} is ${st.toLowerCase()} again`); render(); })
       .catch(e => toast(isForbidden(e) ? NO_PERMISSION : "Couldn't save: " + e.message));
   }
-  const hold = act === "hold";
+  const hold = act === "hold", reasons = pickList("HoldReasons");
   openDialog({ cls:"f-job", kind:"Job Centre · " + (hold ? "On hold" : "Cancel"), title:`${hold ? "Put" : "Cancel"} ${j.Title}${hold ? " on hold" : ""}`, save: hold ? "Put on hold" : "Cancel job",
-    body:`<fieldset><legend>${hold ? "Why is it on hold?" : "Why is it cancelled?"}</legend><div class="fg"><label class="fld w3"><span class="req">Reason</span><input name="reason" required placeholder="${hold ? "e.g. waiting for parts, waiting for customer access" : "e.g. customer cancelled, duplicate job"}"></label></div></fieldset>`,
-    onSubmit: async () => { await saveRow("jobs", j, hold ? { JobStatus:"On Hold", OnHoldReason: val("reason") } : { JobStatus:"Cancelled", CancelReason: val("reason") });
+    body: hold ? `<fieldset><legend>Why is it on hold?</legend><div class="fg">
+        <label class="fld"><span class="req">Reason</span><select name="cat" required><option value=""></option>${reasons.map(r => `<option>${esc(r)}</option>`).join("")}</select></label>
+        <label class="fld w2"><span>Detail</span><input name="reason" placeholder="e.g. client to confirm access date"></label></div></fieldset>
+      <fieldset id="partsBox"><legend>Parts on order</legend><div class="fg">
+        <label class="fld w2"><span>What's on order</span><input name="parts" value="${esc(j.PartsOnOrder || "")}" placeholder="e.g. 2 × 63 A MCB, ACB trip unit"></label>
+        <label class="fld"><span>Expected (ETA)</span><input type="date" name="eta" value="${esc(j.PartsETA || "")}"></label>
+        <label class="fld w3"><span>Supplier</span><input name="supp" list="dl_hsupp" autocomplete="off" value="${esc(j.PartsSupplier || "")}"><datalist id="dl_hsupp">${(D.supp || []).filter(x => x.SupplierStatus !== "Inactive").map(x => `<option value="${esc(x.Title)}">`).join("")}</datalist></label></div></fieldset>`
+      : `<fieldset><legend>Why is it cancelled?</legend><div class="fg"><label class="fld w3"><span class="req">Reason</span><input name="reason" required placeholder="e.g. customer cancelled, duplicate job"></label></div></fieldset>`,
+    onSubmit: async () => {
+      if (hold){ const why = [val("cat"), val("reason")].filter(Boolean).join(": "), parts = val("parts");
+        await saveRow("jobs", j, { JobStatus:"On Hold", OnHoldReason: why, PartsOnOrder: parts, PartsSupplier: parts ? val("supp") : "", PartsETA: parts ? val("eta") : "" });
+        await addUpdate(j, `On hold — ${why}${parts ? `. Parts on order: ${parts}${val("supp") ? " from " + val("supp") : ""}${val("eta") ? ", ETA " + fmtDate(val("eta")) : ""}` : ""}`, true);
+      } else { await saveRow("jobs", j, { JobStatus:"Cancelled", CancelReason: val("reason") }); await addUpdate(j, "Cancelled — " + val("reason"), true); }
       $("#dlg").close(); toast(`${j.Title} ${hold ? "is on hold" : "cancelled"}`); render(); } });
+}
+
+/* Latest update: one line shown in the Job Centre grid. Every update is also kept as a note (NoteType "Update"), so the history stays. */
+async function addUpdate(j, text, quiet){
+  text = String(text || "").trim(); if (!text) return;
+  const now = new Date(), who = me();
+  try { await saveRow("jobs", j, { LatestUpdate: text, LatestUpdateDate: ymd(now), LatestUpdateBy: who }); } catch(e){ if (!quiet) throw e; console.warn(e); }
+  try { await saveRow("notes", null, { Title:j.Title, NoteBy: who, NoteDate: ymd(now), NoteTime: hhmm(now), NoteType:"Update", NoteText: text, ShowOnReport:"No", ClientRef: newRef() }); }
+  catch(e){ console.warn("Update note not saved", e); }
+}
+function openUpdate(j){
+  openDialog({ cls:"f-job", kind:"Job Centre · Latest update", title:`Update on ${j.Title}`, save:"Save update",
+    body:`<fieldset><legend>What's the latest?</legend><div class="fg"><label class="fld w3"><span class="req">Update (shown in the Job Centre; kept in Notes)</span>
+      <textarea name="upd" required placeholder="e.g. Parts arrived Tuesday, booked for Thursday with Peter"></textarea></label></div></fieldset>
+      ${j.LatestUpdate ? `<p class="count">Last update ${fmtDate(j.LatestUpdateDate)}${j.LatestUpdateBy ? " by " + esc(j.LatestUpdateBy) : ""}: ${esc(j.LatestUpdate)}</p>` : ""}`,
+    onSubmit: async () => { try { await addUpdate(j, val("upd")); $("#dlg").close(); toast("Update saved"); render(); } catch(e){ toast(isForbidden(e) ? NO_PERMISSION : "Couldn't save: " + e.message); } } });
 }
 
 /* ---------------- job page ---------------- */
@@ -1914,10 +2131,11 @@ function viewJob(){
   return `
   <div class="crumbs"><a href="#/jobs">Job Centre</a> › ${esc(j.Title)}</div>
   <div class="bar"><h2>${esc(j.Title)}</h2>${jobPill(st)}${priPill(j.Priority)}<span class="count">${esc(j.CustomerName || "")}${j.SiteName ? " · " + esc(j.SiteName) : ""}</span><span class="grow"></span>
-    ${st !== "Invoiced" ? `<button class="btn" data-jact="edit">Edit details</button>` : ""}
+    ${st !== "Invoiced" ? `<button class="btn" data-jact="edit">Edit details</button><button class="btn" data-jact="update">Latest update</button>` : ""}
     ${st === "On Hold" ? `<button class="btn" data-jact="resume">Resume</button>` : st === "Cancelled" ? `<button class="btn" data-jact="resume">Reopen</button>` : !CLOSED.includes(st) ? `<button class="btn" data-jact="hold">Put on hold</button><button class="btn danger" data-jact="cancel">Cancel job</button>` : ""}
     ${mjeAppAllowed("safety") ? `<a class="btn" href="${esc(incidentLink(j, site))}" target="_blank" rel="noopener">⚠ Log an incident</a>` : ""}</div>
-  ${st === "On Hold" && j.OnHoldReason ? `<div class="banner">On hold: ${esc(j.OnHoldReason)}</div>` : ""}${st === "Cancelled" && j.CancelReason ? `<div class="banner err">Cancelled: ${esc(j.CancelReason)}</div>` : ""}
+  ${st === "On Hold" && j.OnHoldReason ? `<div class="banner">On hold: ${esc(j.OnHoldReason)}${j.PartsOnOrder ? ` · parts on order: ${esc(j.PartsOnOrder)}${j.PartsSupplier ? " (" + esc(j.PartsSupplier) + ")" : ""}${j.PartsETA ? ", ETA " + fmtDate(j.PartsETA) : ""}` : ""}</div>` : ""}
+  ${j.LatestUpdate ? `<div class="banner ok"><b>Latest update</b> ${fmtDate(j.LatestUpdateDate)}${j.LatestUpdateBy ? " · " + esc(j.LatestUpdateBy) : ""}: ${esc(j.LatestUpdate)}</div>` : ""}${st === "Cancelled" && j.CancelReason ? `<div class="banner err">Cancelled: ${esc(j.CancelReason)}</div>` : ""}
   <div class="tabs" role="tablist">${JOB_TABS.map(([k, l]) => `<a role="tab" href="#/jobs/${encodeURIComponent(no)}/${k}" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}">${l}${cnt[k] ? ` <span>${cnt[k]}</span>` : ""}</a>`).join("")}</div>
   ${body}`;
 }
@@ -1930,14 +2148,17 @@ function jobDetails(j, st){
   const codes = String(j.AssetCodes || "").split(/[;,]/).map(x => x.trim()).filter(Boolean), assets = codes.map(code => D.assets.find(a => a.Title === code) || { Title:code, Description:"(not found)" });
   return `<div class="grid two">
     <div class="card"><h3>Job</h3><dl class="kv">
-      <dt>Type</dt><dd>${esc(j.JobType || "")}</dd><dt>Priority</dt><dd>${priPill(j.Priority)}</dd><dt>Status</dt><dd>${jobPill(st)}</dd>
+      <dt>Type</dt><dd>${esc(j.JobType || "")}${j.Division ? ` · ${esc(j.Division)}` : ""}</dd><dt>Priority</dt><dd>${priPill(j.Priority)}</dd><dt>Status</dt><dd>${jobPill(st)}</dd>
+      ${j.Branch || j.Team || j.Supervisor ? `<dt>Looked after by</dt><dd>${esc([j.Branch, j.Team, j.Supervisor && "supervisor " + j.Supervisor].filter(Boolean).join(" · "))}</dd>` : ""}
+      ${j.InstructionMethod ? `<dt>Instruction</dt><dd>${esc(j.InstructionMethod)}</dd>` : ""}
       <dt>Received</dt><dd>${fmtDate(j.DateReceived) || "—"}</dd><dt>Due</dt><dd>${fmtDate(j.DueDate) || "—"}</dd>${j.CompletedDate ? `<dt>Completed</dt><dd>${fmtDate(j.CompletedDate)}</dd>` : ""}
       <dt>Estimated hours</dt><dd>${j.EstimatedHours ? esc(j.EstimatedHours) + " h" : "—"}</dd><dt>Customer order no.</dt><dd>${esc(j.CustomerOrderNo || "—")}</dd>
-      <dt>Billing</dt><dd>${esc(j.BillingBasis || "Do & charge")}${j.BillingBasis === "Fixed price (quoted)" ? ` · ${k2(j.QuotedAmountEx)} ex GST` : ""}</dd>
+      <dt>Billing</dt><dd>${esc(j.BillingBasis || "Do & charge")}${j.BillingBasis === "Fixed price (quoted)" ? ` · ${k2(j.QuotedAmountEx)} ex GST` : ""}${j.COD === "Yes" ? ` <span class="pill p-warn">COD</span>` : ""}</dd>
       ${j.QuoteNo ? `<dt>From quote</dt><dd><a href="#/quotes/${encodeURIComponent(j.QuoteNo)}">${esc(j.QuoteNo)}</a></dd>` : ""}${j.InvoiceNo ? `<dt>Invoice</dt><dd class="mono">${esc(j.InvoiceNo)}</dd>` : ""}</dl></div>
     <div class="card"><h3>Customer &amp; site</h3><dl class="kv">
       <dt>Customer</dt><dd>${c ? `<a href="#/customers/${encodeURIComponent(c.CustomerCode)}">${esc(c.Title)}</a>` : esc(j.CustomerName || "")}</dd>
       <dt>Site</dt><dd>${site ? `<a href="#/site/${encodeURIComponent(site.SiteCode)}">${esc(site.Title)}</a>${mapUrl(site) ? ` · <a href="${esc(mapUrl(site))}" target="_blank" rel="noopener">map</a>` : ""}` : esc(j.SiteName || "—")}</dd>
+      ${j.LocationOnSite ? `<dt>Location on site</dt><dd>${esc(j.LocationOnSite)}</dd>` : ""}
       <dt>Contact</dt><dd>${esc(j.ContactName || site?.ContactName || "—")}${(j.ContactPhone || site?.ContactPhone) ? ` · <a href="tel:${esc(j.ContactPhone || site.ContactPhone)}">${esc(j.ContactPhone || site.ContactPhone)}</a>` : ""}</dd>
       ${site?.AccessNotes ? `<dt>Access</dt><dd>${lines(site.AccessNotes)}</dd>` : ""}</dl>
       ${site?.SiteHazards ? `<div class="banner err" style="margin:10px 0 0"><b>Site hazards</b><br>${lines(site.SiteHazards)}</div>` : ""}</div>
@@ -1975,6 +2196,7 @@ function openBooking(j, a, preset = {}){
     body: formBody([["Booking", [...(pick ? [["Title","Job","select",{req:1,w:3,opts:openJobs}]] : []),
       ["Technician","Technician","select",{req:1,w:2,opts:staffOpts}], ["AssignStatus","Status","select",{opts:["Planned","Confirmed","Cancelled"]}],
       ["AssignDate","Date","date",{req:1}], ["StartTime","Start","time",{req:1}], ["EndTime","Finish","time",{req:1}],
+      ["LocationOnSite","Location on site (if different from the job's)","text",{w:3}],
       ...(a ? [] : [["_repeat","Also book the next … working days (multi-day jobs)","number",{min0:1}]]), ["Notes","Notes for the technician","textarea",{w:3}] ]]], v)
       + `<div id="bookWarn"></div>${a ? `<button type="button" class="btn danger" id="delBooking">Delete this booking</button>` : ""}`,
     onSubmit: async () => {
@@ -1982,14 +2204,14 @@ function openBooking(j, a, preset = {}){
       if (f.EndTime <= f.StartTime) return toast("Finish must be after start");
       const n = Math.min(Math.max(0, Math.floor(num(_repeat))), 30); let date = f.AssignDate, warned = false;
       for (let i = 0; i <= n; i++){
-        const gaps = competencyGaps(f.Technician, job.JobType, date); warned ||= gaps.length > 0;
+        const gaps = competencyGaps(f.Technician, job, date); warned ||= gaps.length > 0;
         await saveRow("assign", i === 0 ? a : null, { ...f, Title:job.Title, AssignDate:date, CompetencyWarning: gaps.join("; ") });
         date = nextWorkday(date);
       }
       $("#dlg").close(); toast(`${f.Technician} booked on ${job.Title}${n ? ` for ${n + 1} days from ${fmtDate(f.AssignDate)}` : ` ${fmtDate(f.AssignDate)} ${f.StartTime}–${f.EndTime}`}${warned ? " — competency warning noted" : ""}`); render();
     } });
   const warn = () => { const f = readForm(), job = jobFor(); if (!f.Technician || !job) return $("#bookWarn").innerHTML = "";
-    const gaps = competencyGaps(f.Technician, job.JobType, f.AssignDate || TODAY), cl = clashes({ ...f, item:a }), tags = overdueTags(f.Technician), mapped = (courseMap()[job.JobType] || []).length;
+    const gaps = competencyGaps(f.Technician, job, f.AssignDate || TODAY), cl = clashes({ ...f, item:a }), tags = overdueTags(f.Technician), mapped = jobCourses(job).length;
     $("#bookWarn").innerHTML = (gaps.length ? `<div class="banner">⚠ <b>Competency:</b> ${esc(f.Technician)} — ${gaps.map(esc).join("; ")}. You can still book; the warning is saved with the booking.</div>` : mapped ? `<div class="banner ok">✓ ${esc(f.Technician)} has the training ${esc(job.JobType)} needs.</div>` : `<p class="count">No required training is set for ${esc(job.JobType || "this job type")} (Settings → job type → courses).</p>`)
       + (cl.length ? `<div class="banner err">Clash: ${esc(f.Technician)} is already booked ${cl.map(x => `${esc(x.Title)} ${esc(x.StartTime || "")}–${esc(x.EndTime || "")}`).join(", ")} that day.</div>` : "")
       + (tags.length ? `<div class="banner">${esc(f.Technician)} has ${tags.length} test &amp; tag item${tags.length === 1 ? "" : "s"} overdue or failed: ${tags.map(t => esc(t.PlantID || t.Description || t.Title)).join(", ")}.</div>` : ""); };
@@ -2047,7 +2269,7 @@ function openMaterial(j, m){
   const v = m ? { ...m } : { EntryDate:TODAY, Qty:1, Unit:"each", MarkupPct: num(setting("MaterialMarkupPct", 0)), Billable:"Yes", MaterialSource:"Purchased", AddedBy: me() };
   openDialog({ cls:"f-mat", kind:"Job Centre · Materials", title: m ? `Material on ${j.Title}` : `Add material to ${j.Title}`,
     body: formBody([["Material", [["Description","Item","text",{req:1,w:2}], ["ItemCode","Item code","text"], ["Qty","Qty","number",{req:1,min0:1}], ["Unit","Unit","text"],
-      ["MaterialSource","Source","select",{opts:["Van stock","Purchased","Customer supplied"]}], ["UnitCost","Unit cost (ex GST)","number",{min0:1}], ["MarkupPct","Markup %","number",{min0:1}],
+      ["MaterialSource","Source","select",{opts:["Van stock","Purchased","Customer supplied"]}], ["Supplier","Supplier","text",{list:() => (D.supp || []).filter(x => x.SupplierStatus !== "Inactive").map(x => x.Title)}], ["UnitCost","Unit cost (ex GST)","number",{min0:1}], ["MarkupPct","Markup %","number",{min0:1}],
       ["UnitSell","Unit sell (ex GST)","number",{req:1,min0:1}], ["Billable","Charge the customer?","select",{opts:["Yes","No"]}], ["EntryDate","Date used","date"], ["AddedBy","Added by","select",{opts:staffOpts}] ]]], v)
       + (m ? `<button type="button" class="btn danger" id="delMat">Delete this item</button>` : ""),
     onSubmit: async () => {
@@ -2135,7 +2357,7 @@ function jobSafety(j){
   const mapped = courseMap()[j.JobType] || [];
   return `${site?.SiteHazards ? `<div class="banner err"><b>Site hazards — ${esc(site.Title)}</b><br>${lines(site.SiteHazards)}</div>` : ""}
   <div class="grid two">
-    <div class="card"><h3>Technicians on this job</h3>${techs.length ? `<ul class="list">${techs.map(t => { const g = competencyGaps(t, j.JobType), tags = overdueTags(t);
+    <div class="card"><h3>Technicians on this job</h3>${techs.length ? `<ul class="list">${techs.map(t => { const g = competencyGaps(t, j), tags = overdueTags(t);
       return `<li><span class="x"><b>${esc(t)}</b>${g.length ? `<br><span class="flag">Training: ${g.map(esc).join("; ")}</span>` : ""}${tags.length ? `<br><span class="flag">Test &amp; tag overdue: ${tags.map(x => esc(x.PlantID || x.Description || x.Title)).join(", ")}</span>` : ""}</span>
         ${g.length || tags.length ? `<span class="pill p-warn">check</span>` : `<span class="pill p-ok">OK</span>`}</li>`; }).join("")}</ul>` : `<div class="empty">Nobody booked yet</div>`}
       <p class="count" style="margin-top:8px">${mapped.length ? `Training needed for ${esc(j.JobType)}: ${mapped.map(esc).join(", ")}.` : `No required training is set for ${esc(j.JobType || "this job type")} yet (Settings).`} Test &amp; tag uses items assigned to each person in the Safety Hub.</p></div>
@@ -2198,10 +2420,11 @@ function bindJobs(){
   document.querySelectorAll("[data-jf]").forEach(b => { const fn = () => { S.jf.status = b.dataset.jf; render(); }; b.onclick = fn; b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } }; });
   const jq = $("#jq"); if (jq) jq.oninput = () => { S.jf.q = jq.value; const pos = jq.selectionStart; render(); const n = $("#jq"); n.focus(); n.setSelectionRange(pos, pos); };
   if ($("#jtype")) $("#jtype").onchange = e => { S.jf.type = e.target.value; render(); };
+  document.querySelectorAll("[data-jsel]").forEach(el => el.onchange = () => { S.jf[el.dataset.jsel] = el.value; render(); });
   document.querySelectorAll("td.nogo").forEach(td => { td.onclick = e => e.stopPropagation(); td.onkeydown = e => e.stopPropagation(); });
   document.querySelectorAll("[data-qs]").forEach(s => s.onchange = () => { const j = jobByNo(s.dataset.qs); if (j && s.value) setJobStatus(j, s.value); s.value = ""; });
   const j = jobByNo(jobNoOf()); if (!j || !S.param) return;
-  document.querySelectorAll("[data-jact]").forEach(b => b.onclick = () => ({ edit:() => openForm("job", j), hold:() => setJobStatus(j, "hold"), cancel:() => setJobStatus(j, "cancel"), resume:() => setJobStatus(j, "resume"),
+  document.querySelectorAll("[data-jact]").forEach(b => b.onclick = () => ({ edit:() => openForm("job", j), update:() => openUpdate(j), hold:() => setJobStatus(j, "hold"), cancel:() => setJobStatus(j, "cancel"), resume:() => setJobStatus(j, "resume"),
     book:() => openBooking(j), time:() => openTime(j), mat:() => openMaterial(j), note:() => openNote(j), complete:() => openCompletion(j) })[b.dataset.jact]());
   const rowOpen = (attr, list, fn) => document.querySelectorAll(`[${attr}]`).forEach(r => { const go = () => { const x = D[list].find(i => String(i.id) === r.getAttribute(attr)); if (x) fn(x); };
     r.onclick = go; r.onkeydown = e => { if (e.key === "Enter") go(); }; });
@@ -2218,7 +2441,7 @@ function bindJobs(){
    ===================================================================== */
 const DAY_START = 6 * 60, DAY_END = 20 * 60, DAY_SPAN = DAY_END - DAY_START, SNAP = 15;
 const WEEKDAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-S.sf = { view:"week", date:TODAY, q:"", all:false };
+S.sf = { view:"week", date:TODAY, q:"", all:false, team:"", branch:"" };
 const toMin = t => { if (!t) return null; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const toHHMM = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const dowOf = d => { const [y, m, dd] = d.split("-").map(Number); return (new Date(y, m - 1, dd).getDay() + 6) % 7; };   // Mon = 0
@@ -2226,11 +2449,13 @@ const weekStart = d => addDays(d, -dowOf(d));
 const dayLabel = d => { const [y, m, dd] = d.split("-").map(Number); return new Date(y, m - 1, dd).toLocaleDateString("en-AU", { weekday:"short", day:"numeric", month:"short" }); };
 const liveBookings = () => D.assign.filter(a => a.AssignStatus !== "Cancelled");
 function schedRows(from, to){
+  const keep = n => { const p = S.staff.find(s => s.Title === n); return (!S.sf.team || p?.Team === S.sf.team) && (!S.sf.branch || p?.Branch === S.sf.branch); };
+  if (S.sf.team || S.sf.branch) return technicians().filter(keep);
   const names = technicians(), inRange = liveBookings().filter(a => a.AssignDate >= from && a.AssignDate <= to).map(a => a.Technician).filter(Boolean);
   return [...names, ...[...new Set(inRange)].filter(n => !names.includes(n)).sort((a, b) => a.localeCompare(b))];
 }
 const blockLabel = (a, j) => `<b>${esc(a.Title)}</b> ${esc(j?.SiteName || j?.CustomerName || "")}`;
-const blockTitle = (a, j, cl) => `${a.Title} — ${j?.CustomerName || ""}${j?.SiteName ? " · " + j.SiteName : ""}\n${a.Technician} ${fmtDate(a.AssignDate)} ${a.StartTime || ""}–${a.EndTime || ""}${a.CompetencyWarning ? "\n⚠ " + a.CompetencyWarning : ""}${cl ? "\n⛔ clashes with another booking" : ""}\nClick to edit · drag to move`;
+const blockTitle = (a, j, cl) => `${a.Title} — ${j?.CustomerName || ""}${j?.SiteName ? " · " + j.SiteName : ""}${a.LocationOnSite || j?.LocationOnSite ? " · " + (a.LocationOnSite || j.LocationOnSite) : ""}\n${a.Technician} ${fmtDate(a.AssignDate)} ${a.StartTime || ""}–${a.EndTime || ""}${a.CompetencyWarning ? "\n⚠ " + a.CompetencyWarning : ""}${cl ? "\n⛔ clashes with another booking" : ""}\nClick to edit · drag to move`;
 const priClass = j => j ? ({ Urgent:"p-urgent", High:"p-high" }[j.Priority] || "") : "";
 
 function viewSchedule(){
@@ -2249,6 +2474,7 @@ function viewSchedule(){
   <div class="bar"><h2>Scheduler</h2><span class="seg"><button class="${day ? "on" : ""}" data-sv="day">Day</button><button class="${day ? "" : "on"}" data-sv="week">Week</button></span>
     <button class="btn" data-sn="-1" aria-label="Previous">‹</button><button class="btn" data-sn="0">Today</button><button class="btn" data-sn="1" aria-label="Next">›</button>
     <input type="date" class="f" id="sdate" value="${f.date}" aria-label="Go to date"><b class="stitle">${esc(title)}</b><span class="grow"></span>
+    ${[["team","All teams","Teams"],["branch","All branches","Branches"]].filter(([k, , l]) => pickList(l).length).map(([k, all, l]) => `<select class="f" data-ssel="${k}" aria-label="${all}"><option value="">${all}</option>${pickList(l).map(x => `<option ${x === f[k] ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`).join("")}
     <button class="btn" id="refresh">↻ Refresh</button><button class="btn primary" data-snew="">+ Booking</button></div>
   ${notSetUp(ROUTES.schedule.lists)}
   <div class="sched">
@@ -2303,7 +2529,7 @@ async function dropBooking(tech, date, startMin){
   try {
     if (d.job){
       const j = jobByNo(d.job), start = startMin != null ? startMin : 8 * 60, startT = toHHMM(start), endT = defaultEnd(j, startT);
-      const gaps = competencyGaps(tech, j.JobType, date);
+      const gaps = competencyGaps(tech, j, date);
       await saveRow("assign", null, { Title:j.Title, Technician:tech, AssignDate:date, StartTime:startT, EndTime:endT, AssignStatus:"Planned", CompetencyWarning: gaps.join("; ") });
       const cl = clashes({ Technician:tech, AssignDate:date, StartTime:startT, EndTime:endT, item: D.assign[D.assign.length - 1] });
       toast(`${j.Title} booked for ${tech} ${fmtDate(date)} ${startT}–${endT}${gaps.length ? " · ⚠ competency: " + gaps.join("; ") : ""}${cl.length ? " · ⛔ clashes with " + cl.map(x => x.Title).join(", ") : ""}`);
@@ -2312,7 +2538,7 @@ async function dropBooking(tech, date, startMin){
       const s = toMin(a.StartTime) ?? 8 * 60, e = toMin(a.EndTime) ?? s + 60, ns = startMin != null ? startMin : s;
       const f = { Technician:tech, AssignDate:date, StartTime:toHHMM(ns), EndTime:toHHMM(Math.min(ns + (e - s), 23 * 60 + 45)) };
       if (f.Technician === a.Technician && f.AssignDate === a.AssignDate && f.StartTime === a.StartTime) return;
-      const j = jobByNo(a.Title), gaps = competencyGaps(tech, j?.JobType, date);
+      const j = jobByNo(a.Title), gaps = competencyGaps(tech, j, date);
       await saveRow("assign", a, { ...f, CompetencyWarning: gaps.join("; ") });
       const cl = clashes({ ...a, item:a });
       toast(`Moved ${a.Title} to ${tech} ${fmtDate(date)} ${f.StartTime}–${f.EndTime}${gaps.length ? " · ⚠ competency" : ""}${cl.length ? " · ⛔ clash" : ""}`);
@@ -2332,6 +2558,7 @@ function bindSchedule(){
   const sd = $("#sdate"); if (sd) sd.onchange = () => { if (sd.value) { f.date = sd.value; render(); } };
   const sq = $("#sq"); if (sq) sq.oninput = () => { f.q = sq.value; const pos = sq.selectionStart; render(); const n = $("#sq"); n.focus(); n.setSelectionRange(pos, pos); };
   const sa = $("#sall"); if (sa) sa.onchange = () => { f.all = sa.checked; render(); };
+  document.querySelectorAll("[data-ssel]").forEach(el => el.onchange = () => { f[el.dataset.ssel] = el.value; render(); });
   document.querySelectorAll("[data-snew]").forEach(b => b.onclick = () => openBooking(null, null, { AssignDate: f.date }));
   // drag sources
   document.querySelectorAll("[data-djob]").forEach(el => el.ondragstart = e => { DRAG = { job: el.dataset.djob }; e.dataTransfer.setData("text/plain", el.dataset.djob); e.dataTransfer.effectAllowed = "copy"; });
