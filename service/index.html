@@ -2139,7 +2139,7 @@ function viewJob(){
   <div class="tabs" role="tablist">${JOB_TABS.map(([k, l]) => `<a role="tab" href="#/jobs/${encodeURIComponent(no)}/${k}" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}">${l}${cnt[k] ? ` <span>${cnt[k]}</span>` : ""}</a>`).join("")}</div>
   ${body}`;
 }
-const incidentLink = (j, site) => `${MJE_ROOT}#new-incident?` + new URLSearchParams({ job:j.Title, date:TODAY, location:[site?.Title || j.SiteName, site?.Town, j.CustomerName].filter(Boolean).join(", ") }).toString();
+const incidentLink = (j, site) => `${MJE_ROOT}#new-incident?` + new URLSearchParams({ job:j.Title, date:TODAY, location:[site?.Title || j.SiteName, site?.Town, j.CustomerName].filter(Boolean).join(", "), ...(j.Branch || site?.Branch ? { branch: j.Branch || site.Branch } : {}) }).toString();
 const locked = r => !!r.InvoiceNo;
 const lockNote = `<span class="count" title="Invoiced — locked">🔒</span>`;
 

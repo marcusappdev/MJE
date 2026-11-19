@@ -8,6 +8,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js"></script>
 <link rel="stylesheet" href="shared/mje.css?v=20261020">
 <style>
+  header .brsel{width:auto;max-width:210px;flex:none;margin-left:auto;background:#2b3640;color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:5px 8px;font:inherit;font-size:13px}
+  header .brsel + .who{margin-left:12px}
+  header .brsel option{color:#111;background:#fff}
+
 /* Safety Hub only — everything shared with the Service Hub is in shared/mje.css */
 .hm{display:grid;grid-template-columns:18px 1fr;grid-template-rows:auto auto;gap:4px}
 .hm-y{writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:.5px}
@@ -155,7 +159,7 @@ table.legt a{font-size:12px;color:var(--info)}
     <button data-v="comp">Compliance</button>
     <button data-v="rpt">Reports</button>
   </nav>
-  <div class="who" id="who"></div>
+  <select class="brsel" id="brSel" aria-label="Branch" hidden></select><div class="who" id="who"></div>
 </header>
 <main id="main"><div class="empty">Loading…</div></main>
 
@@ -179,7 +183,7 @@ const CONFIG = {
   ...MJE_TENANT,
   // List names = BRAND.LIST_PREFIX (mje-config.js) + these, e.g. MJE_Incidents
   LISTS: mjeLists({ inc: "Incidents", imp: "Improvements", risk: "Risks", rev: "RiskReviews", eq: "Equipment", tt: "TestTag", photos: "IncidentPhotos",
-           staff: "Staff", course: "Courses", trn: "Training", area: "InspectionAreas", ins: "Inspections", leg: "Legislation", obs: "Observations" }),
+           staff: "Staff", course: "Courses", trn: "Training", area: "InspectionAreas", ins: "Inspections", leg: "Legislation", obs: "Observations", settings: "ServiceSettings" }),
   SCOPES: ["Sites.ReadWrite.All", "User.Read"],
   RTW_HOURS_PER_DAY: 9
 };
@@ -196,7 +200,7 @@ async function loadListSafe(key){
 const saveItem = (key, id, fields) => saveListItem(CONFIG.LISTS[key], id, fields);
 
 /* ---------------- state ---------------- */
-const S = { inc:[], imp:[], risk:[], rev:[], eq:[], tt:[], staff:[], course:[], trn:[], area:[], ins:[], leg:[], obs:[], missing:[], view:"dash", sort:{ inc:["Title",-1], imp:["Title",-1], risk:["Title",1], rev:["RegisterType",1], eq:["Title",1], tt:["NextTestDate",1], staff:["Title",1], course:["Title",1], trn:["Title",1], area:["Title",1], ins:["InspectionDate",-1], leg:["Title",1], obs:["Title",1] },
+const S = { branch:"", inc:[], imp:[], risk:[], rev:[], eq:[], tt:[], staff:[], course:[], trn:[], area:[], ins:[], leg:[], obs:[], missing:[], view:"dash", sort:{ inc:["Title",-1], imp:["Title",-1], risk:["Title",1], rev:["RegisterType",1], eq:["Title",1], tt:["NextTestDate",1], staff:["Title",1], course:["Title",1], trn:["Title",1], area:["Title",1], ins:["InspectionDate",-1], leg:["Title",1], obs:["Title",1] },
             filt:{ inc:{ q:"", status:"", year:YEAR, sev:"" }, imp:{ q:"", status:"open", cat:"", pri:"", src:"" }, imps:{ sub:"imp" }, obs:{ q:"", status:"open", src:"" },
                    risk:{ q:"", reg:"", rating:"", status:"", cell:"", residual:false },
                    assets:{ sub:"eq" }, eq:{ q:"", cat:"", status:"" }, tt:{ q:"", state:"", all:false },
@@ -217,7 +221,7 @@ const IMP_SRC = ["Audit finding","Inspection","Observation","Incident","Risk rev
 const INC_FORM = [
   ["Incident", [
     ["Title","Registration No","text",{ro:1}], ["IncidentDate","Date of incident","date",{req:1}], ["IncidentTime","Time","time"],
-    ["FirstName","First name","text"], ["Surname","Surname","text"], ["Location","Location / site","text"],
+    ["FirstName","First name","text"], ["Surname","Surname","text"], ["Location","Location / site","text"], ["Branch","Branch","select",{dyn:"branch"}],
     ["Description","Description","textarea",{w:3,req:1}],
   ]],
   ["Injury", [
@@ -241,7 +245,7 @@ const INC_FORM = [
 const IMP_FORM = [
   ["Improvement", [
     ["Title","Serial No","text",{ro:1}], ["Category","Category","select",{opts:IMP_CAT,req:1}], ["Priority","Priority","select",{opts:IMP_PRI,req:1}],
-    ["OriginatedBy","Originated by","text",{req:1}], ["DateIssued","Date issued","date",{req:1}], ["ActionedBy","Actioned by","text"], ["Source","Source","select",{opts:IMP_SRC}],
+    ["OriginatedBy","Originated by","text",{req:1}], ["DateIssued","Date issued","date",{req:1}], ["ActionedBy","Actioned by","text"], ["Source","Source","select",{opts:IMP_SRC}], ["Branch","Branch","select",{dyn:"branch"}],
     ["NatureOfImprovement","Nature of improvement","textarea",{w:3,req:1}],
     ["ProposedAction","Proposed improvement action","textarea",{w:3}],
     ["Impact","Impact","textarea",{w:3}], ["Benefit","Benefit","textarea",{w:3}],
@@ -261,7 +265,7 @@ const OBS_REC = ["One-off","Ongoing"];
 const OBS_FREQ = ["Daily","Weekly","Fortnightly","Monthly","Quarterly","Six-monthly","Annually"];
 const OBS_FORM = [
   ["Observation", [
-    ["Title","TOM no.","text",{ro:1}], ["Source","Source","select",{opts:OBS_SRC}], ["DateRaised","Date raised","date"],
+    ["Title","TOM no.","text",{ro:1}], ["Source","Source","select",{opts:OBS_SRC}], ["DateRaised","Date raised","date"], ["Branch","Branch","select",{dyn:"branch"}],
     ["Observation","Observation / task","textarea",{w:3,req:1}], ["ImpactRisk","Impact / risk","textarea",{w:3}],
   ]],
   ["Action & monitoring", [
@@ -303,7 +307,7 @@ const openRisk = r => r.RiskType !== "Opportunity" && r.RiskStatus !== "Closed";
 const RISK_FORM = [
   ["Risk", [
     ["Title","Ref","text",{ro:1}], ["RegisterType","Register","select",{opts:REGISTERS,req:1}], ["RiskType","Risk or opportunity","select",{opts:["Risk","Opportunity"],req:1}],
-    ["ActivityArea","Activity / process / aspect","text",{req:1}], ["Task","Task (task register)","text"], ["Impact","Impact / who is at risk","text"],
+    ["ActivityArea","Activity / process / aspect","text",{req:1}], ["Task","Task (task register)","text"], ["Impact","Impact / who is at risk","text"], ["Branch","Branch (blank = every branch)","select",{dyn:"branch"}],
     ["Hazard","Hazard / risk / environmental impact","textarea",{w:3,req:1}],
   ]],
   ["Assessment (before controls)", [
@@ -416,7 +420,7 @@ const TT_MONTHS = { "3 Months":3, "6 Months":6, "Yearly":12, "2 Years":24, "5 Ye
 const EQ_FORM = [
   ["Equipment", [
     ["Title","Asset ID","text",{ro:1}], ["Category","Category","select",{opts:EQ_CATS,req:1}], ["EquipStatus","Status","select",{opts:EQ_STATUS}],
-    ["Make","Make / item","text",{req:1}], ["Model","Model","text"], ["EquipType","Type","text"],
+    ["Make","Make / item","text",{req:1}], ["Model","Model","text"], ["EquipType","Type","text"], ["Branch","Branch","select",{dyn:"branch"}],
     ["SerialRego","Serial / rego no.","text"], ["Location","Location / assigned to","text"], ["HeldStored","Held / stored","text"],
   ]],
   ["Value", [
@@ -427,7 +431,7 @@ const EQ_FORM = [
 ];
 const TT_FORM = [
   ["Item", [
-    ["Title","Test no.","text",{ro:1}], ["ItemKey","Item ref","text",{ro:1}], ["PlantID","Plant ID / tag","text"], ["Description","Description","text",{req:1}], ["Location","Location","text"],
+    ["Title","Test no.","text",{ro:1}], ["ItemKey","Item ref","text",{ro:1}], ["PlantID","Plant ID / tag","text"], ["Description","Description","text",{req:1}], ["Location","Location","text"], ["Branch","Branch","select",{dyn:"branch"}],
   ]],
   ["Test", [
     ["TestDate","Test date","date",{req:1}], ["TestPeriod","Test period","select",{opts:TT_PERIODS,req:1}], ["NextTestDate","Next test date","date"],
@@ -563,7 +567,7 @@ const MONTHS = ["January","February","March","April","May","June","July","August
 const DEPTS = ["Administration","Service","Projects","Other"];
 const STAFF_FORM = [["Staff member", [
   ["Title","Full name","text",{req:1}], ["EmployeeNo","Employee no.","text"], ["Position","Position","text",{req:1}],
-  ["Department","Department","select",{opts:DEPTS,req:1}], ["StaffStatus","Status","select",{opts:["Active","Left"]}], ["Notes","Notes","textarea",{w:3}] ]],
+  ["Department","Department","select",{opts:DEPTS,req:1}], ["StaffStatus","Status","select",{opts:["Active","Left"]}], ["Branch","Branch","select",{dyn:"branch"}], ["Notes","Notes","textarea",{w:3}] ]],
   ["Service Hub access", [
   ["Email","M365 email (sign-in) — leave blank if no account","email",{w:2}], ["HubRole","Service Hub role","select",{opts:["Technician","Office","Admin","None"]}],
   ["Initials","Initials","text"], ["Mobile","Mobile","tel"] ]]];
@@ -574,7 +578,7 @@ const TRN_FORM = [
   ["Completion", [ ["CompletedDate","Date completed","date"], ["ExpiryDate","Expiry date","date"], ["Provider","Provider","text"], ["CertificateNo","Certificate no.","text"], ["Notes","Notes","textarea",{w:3}] ]]];
 const AREA_FORM = [["Inspection area", [
   ["Title","Area / audit topic","text",{req:1,w:2}], ["InspType","Type","select",{opts:INS_TYPES}], ["PlannedMonth","Planned month","select",{opts:MONTHS}], ["Frequency","Frequency","select",{opts:["Monthly","Quarterly","Six-monthly","Annually"]}],
-  ["Responsible","Responsible","text"], ["Notes","Notes","textarea",{w:3}] ]]];
+  ["Responsible","Responsible","text"], ["Branch","Branch","select",{dyn:"branch"}], ["Notes","Notes","textarea",{w:3}] ]]];
 const INS_FORM = [
   ["Inspection", [ ["Title","Inspection / audit no.","text",{ro:1}], ["InspType","Type","select",{opts:INS_TYPES}], ["Area","Area / audit topic","select",{opts:[],req:1,dyn:"area"}], ["InspectionDate","Date","date",{req:1}], ["Inspector","Inspector","text"],
     ["Outcome","Outcome","select",{opts:["Satisfactory","Actions required","Not satisfactory"]}], ["ActionsRaised","Actions raised (IR no.)","text"] ]],
@@ -594,6 +598,46 @@ const trnState = r => {
 };
 const TRN_LABEL = { done:"Completed", expiring:"Expires within 60 days", expired:"Expired", missing:"Mandatory – not recorded", planned:"Extended – not yet done", na:"Not required" };
 const activeStaff = () => S.staff.filter(s => s.StaffStatus !== "Left");
+
+/* ---------------- branches ----------------
+   Port Moresby (head office) and Lae are separate places. The list comes from the "Branches" setting
+   (Service Hub → Settings → Numbering & lists; the first one is the head office) plus any branch already on a record.
+   A record with no branch counts as the head office. A risk with no branch applies to every branch.
+   The picker in the header filters every register, the dashboard and the reports. */
+let BRANCH_SETTING = [];
+function branches(){
+  const seen = new Set(BRANCH_SETTING);
+  ["inc","imp","obs","risk","eq","tt","area","staff"].forEach(k => S[k].forEach(r => { const b = String(r.Branch || "").trim(); if (b) seen.add(b); }));
+  return [...seen];
+}
+const headOffice = () => branches()[0] || "";
+const brOf = r => String(r?.Branch || "").trim() || headOffice();
+const staffBranch = name => brOf(S.staff.find(s => s.Title === name));
+const areaBranch = title => brOf(S.area.find(a => a.Title === title));
+const BRANCH_RULE = {
+  inc: r => brOf(r) === S.branch, imp: r => brOf(r) === S.branch, obs: r => brOf(r) === S.branch, eq: r => brOf(r) === S.branch,
+  tt: r => brOf(r) === S.branch, area: r => brOf(r) === S.branch, staff: r => brOf(r) === S.branch,
+  risk: r => !String(r.Branch || "").trim() || r.Branch === S.branch,
+  ins: r => (String(r.Branch || "").trim() || areaBranch(r.Area)) === S.branch,
+  trn: r => staffBranch(r.StaffName) === S.branch,
+};
+// Run fn with S.<list> showing only the picked branch, then put the full lists back
+function inBranch(fn){
+  if (!S.branch) return fn();
+  const full = {};
+  for (const k of Object.keys(BRANCH_RULE)) full[k] = S[k];
+  try { for (const k of Object.keys(BRANCH_RULE)) S[k] = full[k].filter(BRANCH_RULE[k]); return fn(); }
+  finally { Object.assign(S, full); }
+}
+const brTag = () => S.branch ? ` · ${esc(S.branch)}${S.branch === headOffice() ? " (head office)" : ""}` : (branches().length > 1 ? " · all branches" : "");
+function myBranch(){ const me = String(account?.username || "").toLowerCase(); const s = me && S.staff.find(x => String(x.Email || "").toLowerCase() === me); return s?.Branch || ""; }
+function setupBranchPicker(){
+  const sel = $("#brSel"), list = branches();
+  if (S.branch && !list.includes(S.branch)) S.branch = "";
+  sel.hidden = list.length < 2 && !S.branch;
+  sel.innerHTML = `<option value="">All branches</option>` + list.map((b, i) => `<option value="${esc(b)}" ${b === S.branch ? "selected" : ""}>${esc(b)}${i === 0 ? " (head office)" : ""}</option>`).join("");
+  sel.onchange = () => { S.branch = sel.value; try { localStorage.setItem(mjeStoreKey("mjeSafetyBranch"), S.branch); } catch {} render(); };
+}
 const trnFor = (name, course) => S.trn.find(r => r.StaffName === name && r.Course === course);
 function trnStaffFiltered(){ const f = S.filt.trn, q = f.q.toLowerCase();
   return activeStaff().filter(s => (!f.dept || s.Department === f.dept) && (!f.gaps || S.trn.some(r => r.StaffName === s.Title && r.Requirement === "Mandatory" && ["missing","expired"].includes(trnState(r)))) && (!q || [s.Title,s.Position,s.EmployeeNo].join(" ").toLowerCase().includes(q)))
@@ -855,6 +899,17 @@ function viewReports(){
     <p class="count noprint">Type comments in the box before printing; they're kept on this computer only. In the print window choose <b>Save as PDF</b> to make a file to email.</p>`;
 }
 
+// All branches: one line per branch with the headline figures (records with no branch count as the head office)
+function hseByBranch(ym){
+  const list = branches(); if (S.branch || list.length < 2) return "";
+  const rows = list.map(b => { const keep = S.branch; S.branch = b; try { return [b, inBranch(() => hseFigures(ym))]; } finally { S.branch = keep; } });
+  const ttOn = !S.missing.includes("tt"), trnOn = !S.missing.includes("trn") && !S.missing.includes("staff"), insOn = !S.missing.includes("area");
+  return `<section><h2>By branch <small>${ymShort(ym)}</small></h2><table class="rtab sm"><thead><tr><th>Branch</th><th class="n">Incidents</th><th class="n">LTIs</th><th class="n">Est. cost</th>
+    <th class="n">Improvements open</th><th class="n">Overdue actions</th>${trnOn ? `<th class="n">Mandatory training</th>` : ""}${ttOn ? `<th class="n">T&amp;T overdue / failed</th>` : ""}${insOn ? `<th class="n">Inspections done</th>` : ""}</tr></thead><tbody>
+    ${rows.map(([b, c], i) => `<tr><td>${esc(b)}${i === 0 ? ` <small>head office</small>` : ""}</td><td class="n">${c.incN}</td><td class="n">${c.lti}</td><td class="n">${kina(c.cost)}</td><td class="n">${c.impOpen}</td><td class="n">${c.overdue.length}</td>
+      ${trnOn ? `<td class="n">${c.trnPct == null ? "—" : c.trnPct + "%"}</td>` : ""}${ttOn ? `<td class="n">${c.ttBad} of ${c.ttItems}</td>` : ""}${insOn ? `<td class="n">${c.insDone}/${c.insPlanned}</td>` : ""}</tr>`).join("")}
+    </tbody></table></section>`;
+}
 function hseReport(ym){
   const c = hseFigures(ym), p = hseFigures(prevYm(ym)), pm = ymShort(prevYm(ym)), cur = ym === ymOf(TODAY);
   const riskOn = !S.missing.includes("risk"), ttOn = !S.missing.includes("tt"), trnOn = !S.missing.includes("trn") && !S.missing.includes("staff"),
@@ -866,7 +921,7 @@ function hseReport(ym){
   const sevRows = INC_SEV.map(s => [s, c.inc.filter(i => i.Severity === s).length, S.inc.filter(i => inYm(i.IncidentDate, ym.slice(0,4)) && (i.IncidentDate || "") <= c.d && i.Severity === s).length]).filter(r => r[1] || r[2]);
   const daysLate = t => Math.round((new Date(c.d) - new Date(t)) / 864e5);
   return `<article class="rpt" id="rpt">
-  <header class="rh">${mjeLogoFull()}<div><h1>Monthly HSE Report</h1><div class="rm">${ymLabel(ym)}</div>
+  <header class="rh">${mjeLogoFull()}<div><h1>Monthly HSE Report</h1><div class="rm">${ymLabel(ym)}${brTag()}</div>
     <div class="rmeta">Figures as at ${fmtDate(c.d)}${cur ? " (month in progress)" : ""} · prepared ${fmtDate(TODAY)}${account?.name ? " by " + esc(account.name) : ""}</div></div></header>
 
   <section><h2>Headline figures <small>change ${vs}</small></h2><div class="rts">
@@ -879,6 +934,7 @@ function hseReport(ym){
     ${ttOn ? tile("Test & tag overdue / failed", c.ttBad, delta(c.ttBad, p.ttBad, "down"), `of ${c.ttItems}`) : ""}
     ${insOn ? tile("Inspections done", `${c.insDone}/${c.insPlanned}`, delta(c.insDone, p.insDone, "up"), "of planned") : ""}
   </div></section>
+  ${hseByBranch(ym)}
 
   <section class="r2"><div><h2>Incidents</h2>
     <p class="rk">${c.incN ? `${c.incN} incident${c.incN === 1 ? "" : "s"} in ${ymLabel(ym)}: ${c.serious} needing medical treatment or worse, ${c.nearMiss} near miss${c.nearMiss === 1 ? "" : "es"}, ${c.hrsLost ? c.hrsLost + " working hours lost" : "no working hours lost"}.` : `No incidents recorded in ${ymLabel(ym)}.`}</p>
@@ -1089,7 +1145,7 @@ function viewLookahead(tabs){
       <button class="btn primary" data-rprint="${esc(BRAND.SHORT)} Lookahead ${TODAY}">Print / Save as PDF</button></div>
     ${tabs}
   <article class="rpt" id="rpt">
-  <header class="rh">${mjeLogoFull()}<div><h1>${f.days}-Day Lookahead</h1><div class="rm">${fmtDate(TODAY)} to ${fmtDate(end)}</div>
+  <header class="rh">${mjeLogoFull()}<div><h1>${f.days}-Day Lookahead</h1><div class="rm">${fmtDate(TODAY)} to ${fmtDate(end)}${brTag()}</div>
     <div class="rmeta">${label ? esc(label) + " only · " : ""}${f.overdue ? "includes items already overdue" : "overdue items not shown"}${f.group ? " · grouped by type; test &amp; tag combined by location" : ""} · prepared ${fmtDate(TODAY)}${account?.name ? " by " + esc(account.name) : ""}</div></div></header>
   <section><h2>Falling due <small class="noprint">click a box to show one type; click again for all</small></h2><div class="rts">${tiles}</div></section>
   <section>${rows.length ? `<table class="rtab ag"><thead><tr><th style="width:92px">Due</th><th style="width:150px">Type</th><th>Item</th><th>Who / where</th><th>Notes</th></tr></thead><tbody>
@@ -1102,7 +1158,7 @@ function viewLookahead(tabs){
 }
 
 /* ---------------- shared report pieces ---------------- */
-const rptHead = (title, sub, meta) => `<header class="rh">${mjeLogoFull()}<div class="grow"><h1>${title}</h1><div class="rm">${sub}</div>
+const rptHead = (title, sub, meta) => `<header class="rh">${mjeLogoFull()}<div class="grow"><h1>${title}</h1><div class="rm">${sub}${brTag()}</div>
   <div class="rmeta">${meta ? meta + " · " : ""}prepared ${fmtDate(TODAY)}${account?.name ? " by " + esc(account.name) : ""}</div></div></header>`;
 const rptBar = (controls, printTitle) => `<div class="bar noprint"><h2>Reports</h2><span class="grow"></span>${controls}${rptBack()}<button class="btn primary" data-rprint="${esc(printTitle)}">Print / Save as PDF</button></div>`;
 const rsel = (id, opts, cur) => `<select class="f" id="${id}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
@@ -1473,7 +1529,9 @@ function render(){
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.v === S.view));
   const banner = DEMO ? `<div class="banner">Demo mode — showing the existing registers as sample data. Changes are kept only until you refresh. Add the app registration details to CONFIG to connect to SharePoint.</div>` : "";
   const tb = S.tile && S.view !== "dash" ? `<div class="filterbar" style="--fbc:var(--c-${GO_LABEL[S.tile][1]})"><span class="ft">Showing from dashboard:</span> <b>${esc(GO_LABEL[S.tile][0])}</b><span class="grow"></span><button class="fchip" data-clearall="1">✕ Clear filter</button></div>` : "";
-  $("#main").innerHTML = banner + tb + ({ dash:viewDash, inc:viewInc, imp:viewImp, risk:viewRisk, assets:viewAssets, training:viewTraining, comp:viewCompliance, rpt:viewReports }[S.view])();
+  const brBanner = S.branch ? `<div class="filterbar" style="--fbc:var(--c-rev)"><span class="ft">Branch:</span> <b>${esc(S.branch)}</b>${S.branch === headOffice() ? ` <span class="count">head office — includes records with no branch</span>` : ""}<span class="grow"></span><button class="fchip" id="brAll">Show all branches</button></div>` : "";
+  $("#main").innerHTML = banner + brBanner + tb + inBranch(() => ({ dash:viewDash, inc:viewInc, imp:viewImp, risk:viewRisk, assets:viewAssets, training:viewTraining, comp:viewCompliance, rpt:viewReports }[S.view])());
+  if ($("#brAll")) $("#brAll").onclick = () => { $("#brSel").value = ""; $("#brSel").onchange(); };
   bindView(); bindReports();
 }
 
@@ -1672,6 +1730,8 @@ function raiseImprovement(key, item){
     ? { Source:"Observation", NatureOfImprovement: item.Observation || "", ProposedAction: item.ActionRequired || "", ActionedBy: item.Responsible || "", Impact: item.ImpactRisk || "",
         ...(item.DueDate ? { TargetDate: item.DueDate } : {}) }
     : { Source: aud ? "Audit finding" : "Inspection", Category: aud ? "Quality" : "Safety", NatureOfImprovement: item.Findings || "", OriginatedBy: item.Inspector || "" };
+  pre.Branch = key === "obs" ? brOf(item) : (String(item.Branch || "").trim() || areaBranch(item.Area));
+  if (!branches().length) delete pre.Branch;
   pre.Remarks = `Raised from ${label}${key === "ins" && item.Area ? " (" + item.Area + ")" : ""}`;
   openForm("imp", undefined, pre, { key, id: item.id, label });
 }
@@ -1743,8 +1803,9 @@ function fieldHtml([name, label, type, o = {}], v){
   const cls = `fld ${o.w===3?"w3":o.w===2?"w2":""}`, lab = `<span class="${o.req?"req":""}">${label}</span>`;
   const attrs = `name="${name}" ${o.req?"required":""} ${o.ro?"readonly tabindex=-1":""}`;
   if (type === "textarea") return `<label class="${cls}">${lab}<textarea ${attrs}>${esc(v)}</textarea></label>`;
+  if (o.dyn === "branch" && !branches().length && !v) return "";
   if (type === "select"){
-    const base = o.dyn ? (o.dyn === "staff" ? activeStaff() : S[o.dyn]).map(r => r.Title).sort((a,b) => a.localeCompare(b)) : o.opts;
+    const base = o.dyn === "branch" ? branches() : o.dyn ? (o.dyn === "staff" ? activeStaff() : S[o.dyn]).map(r => r.Title).sort((a,b) => a.localeCompare(b)) : o.opts;
     const list = base.includes(v) || !v ? base : [...base, v];     // keep fill-in values
     return `<label class="${cls}">${lab}<select ${attrs}><option value=""></option>${list.map(x => `<option ${x===v?"selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
   }
@@ -1782,6 +1843,7 @@ function openForm(key, item, prefill = {}, raise = null){
   photoQueue = [];
   const defs = FORMS[key];
   const v = item ? { ...item } : { ...newDefaults(key), ...prefill };
+  if (!item && !v.Branch && defs.some(sc => sc[1].some(f => f[0] === "Branch"))) v.Branch = S.branch || (key === "risk" ? "" : myBranch());
   if (key === "area" && !v.InspType) v.InspType = "Inspection";
   if (key === "ins"){ if (!v.InspType) v.InspType = insIsAud(v) ? AUD : "Inspection"; if (!item) v.Title = newTitle("ins", v); }
   const audOf = ty => (key === "ins" || key === "area") && ty === AUD;
@@ -1828,7 +1890,7 @@ function openForm(key, item, prefill = {}, raise = null){
     upd("Likelihood","Consequence","RiskScore","Rating"); upd("ResidualLikelihood","ResidualConsequence","ResidualScore","ResidualRating"); hint();
   } else if (key === "tt"){
     $("#dlgBody").oninput = e => { if (e.target.name === "TestDate" || e.target.name === "TestPeriod"){ const d = $("[name=TestDate]").value, m = TT_MONTHS[$("[name=TestPeriod]").value]; if (d && m) $("[name=NextTestDate]").value = addMonths(d, m); } };
-    if (item) $("#ttRetest").onclick = () => openForm("tt", undefined, { ItemKey: ttKey(item), PlantID:item.PlantID, Description:item.Description, Location:item.Location, TestPeriod:item.TestPeriod, CompetentPerson:item.CompetentPerson,
+    if (item) $("#ttRetest").onclick = () => openForm("tt", undefined, { ItemKey: ttKey(item), PlantID:item.PlantID, Description:item.Description, Location:item.Location, Branch:item.Branch, TestPeriod:item.TestPeriod, CompetentPerson:item.CompetentPerson,
       NextTestDate: addMonths(TODAY, TT_MONTHS[item.TestPeriod] || 12) });
   } else if (key === "leg"){
     $("#dlgBody").oninput = null;
@@ -1934,10 +1996,11 @@ async function submitForm(e){
 function exportCsv(key){
   const cols = FORMS[key].flatMap(s => s[1]);
   const cell = v => `"${String(v ?? "").replace(/"/g,'""')}"`;
-  const lines = [cols.map(c => cell(c[1])).join(",")].concat(sortRows(S[key], key).map(r => cols.map(c => cell(c[2]==="date" ? fmtDate(r[c[0]]) : r[c[0]])).join(",")));
+  const rows = inBranch(() => S[key]);
+  const lines = [cols.map(c => cell(c[1])).join(",")].concat(sortRows(rows, key).map(r => cols.map(c => cell(c[2]==="date" ? fmtDate(r[c[0]]) : r[c[0]])).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + lines.join("\r\n")], { type:"text/csv" }));
-  a.download = `${BRAND.SHORT}_${FILE_NAMES[key]}_${TODAY}.csv`; a.click();
+  a.download = `${BRAND.SHORT}_${FILE_NAMES[key]}${S.branch ? "_" + S.branch.replace(/[^A-Za-z0-9]+/g, "_") : ""}_${TODAY}.csv`; a.click();
 }
 
 /* ---------------- link from the Service Hub: log an incident against a job ---------------- */
@@ -1948,12 +2011,20 @@ function openIncidentFromLink(){
   const p = new URLSearchParams(m[1]); history.replaceState(null, "", location.pathname + location.search);
   S.view = "inc"; render();
   const job = p.get("job") || "";
-  openForm("inc", undefined, { IncidentDate: /^\d{4}-\d{2}-\d{2}$/.test(p.get("date") || "") ? p.get("date") : TODAY, Location: p.get("location") || "", JobNo: job,
+  openForm("inc", undefined, { IncidentDate: /^\d{4}-\d{2}-\d{2}$/.test(p.get("date") || "") ? p.get("date") : TODAY, Location: p.get("location") || "", JobNo: job, Branch: p.get("branch") || "",
     ReportedBy: account?.name || "" });
   if (job) toast(`Logging an incident for job ${job}`);
 }
 
 /* ---------------- boot ---------------- */
+async function loadBranchSetting(){
+  try {
+    const rows = await listItems(CONFIG.LISTS.settings), v = String(rows.find(r => r.Title === "Branches")?.SettingValue || "").trim();
+    let a = []; try { a = JSON.parse(v); } catch {} if (!Array.isArray(a)) a = [];
+    BRANCH_SETTING = (a.length ? a : v.split(/\r?\n/)).map(x => String(x).trim()).filter(Boolean);
+  } catch(e){ if (!isMissingList(e) && !isForbidden(e)) console.warn("Branches setting not read", e); }
+  try { S.branch = localStorage.getItem(mjeStoreKey("mjeSafetyBranch")) || ""; } catch {}
+}
 function showSignIn(msg){
   $("#main").innerHTML = `<div class="card signin"><div class="full">${mjeLogoFull(true)}</div><h2>Safety Hub</h2><p>Safety, risk and compliance registers for ${esc(BRAND.COMPANY)}.</p>
     ${msg ? `<div class="banner err">${esc(msg)}</div>` : ""}<button class="btn primary" id="si">Sign in with Microsoft 365</button></div>`;
@@ -1977,7 +2048,7 @@ async function start(){
     S.eq = (SEED.eq || []).map((r,k) => toNum2({ id:"e"+k, ...r })); S.tt = (SEED.tt || []).map((r,k) => ({ id:"t"+k, ...r }));
     ["staff","course","trn","area","ins","leg","obs"].forEach(k => S[k] = (SEED[k] || []).map((r,i) => ({ id:k+i, ...r })));
     S.course.forEach(c => { if (c.RefresherMonths) c.RefresherMonths = +c.RefresherMonths; });
-    $("#who").innerHTML = `<span>Demo user</span>`; $("#nav").hidden = false; render(); openIncidentFromLink(); return;
+    $("#who").innerHTML = `<span>Demo user</span>`; $("#nav").hidden = false; setupBranchPicker(); render(); openIncidentFromLink(); return;
   }
   try { await initAuth(); } catch(e){ showSignIn("Sign-in error: " + e.message); return; }
   if (!account) return showSignIn();
@@ -1989,7 +2060,8 @@ async function start(){
     await getSite();
     [S.inc, S.imp, S.risk, S.rev, S.eq, S.tt] = await Promise.all([loadList("inc"), loadList("imp"), loadListSafe("risk"), loadListSafe("rev"), loadListSafe("eq"), loadListSafe("tt")]);
     [S.staff, S.course, S.trn, S.area, S.ins, S.leg, S.obs] = await Promise.all(["staff","course","trn","area","ins","leg","obs"].map(loadListSafe));
-    $("#nav").hidden = false; render(); openIncidentFromLink();
+    await loadBranchSetting();
+    $("#nav").hidden = false; setupBranchPicker(); render(); openIncidentFromLink();
   } catch(e){
     $("#main").innerHTML = `<div class="banner err">Couldn't load data from SharePoint: ${esc(e.message)}<br>Check the site ${esc(CONFIG.SP_HOST + CONFIG.SITE_PATH)} exists, the lists have been provisioned, and you have access.</div>`;
   }
