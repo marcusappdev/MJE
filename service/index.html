@@ -9,6 +9,9 @@
 <link rel="stylesheet" href="../shared/mje.css?v=20261020">
 <style>
 /* Service Hub only — everything shared with the Safety Hub is in ../shared/mje.css */
+.brsel{background:#2b3640;color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:4px 8px;font:inherit;font-size:13px;max-width:170px}
+.brsel option{color:#111;background:#fff}
+.brpill{font-size:12px;border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:2px 8px;color:#fff;white-space:nowrap}
 .rolepill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:1px 6px;color:#fff}
 .sync{display:inline-flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
 .sync::before{content:"";width:8px;height:8px;border-radius:50%;background:#4ade80}
@@ -197,7 +200,7 @@ const SAFETY_KEYS = ["staff","trn","course","tt","risk","inc"];
 const OFFICE = ["Admin","Office"], TECH = ["Technician"];
 const CUST_LOAD = ["customers","sites","assets","jobs","quotes","sync","settings","comp","time","assign"];
 const ROUTES = {
-  dash:      { label:"Dashboard",         roles:OFFICE, lists:["jobs","assign","quotes","inv","comp","time","mat","rates"], load:["jobs","assign","quotes","inv","comp","time","mat","rates"], step:"Dashboard — jobs by status, today's schedule, unscheduled jobs, quotes pending approval, completed-not-invoiced value, overdue jobs" },
+  dash:      { label:"Dashboard",         roles:OFFICE, lists:["jobs","assign","quotes","inv","comp","time","mat","rates"], load:["jobs","assign","quotes","inv","comp","time","mat","rates","settings"], step:"Dashboard — jobs by status, today's schedule, unscheduled jobs, quotes pending approval, completed-not-invoiced value, overdue jobs" },
   customers: { label:"Customers & Sites", roles:OFFICE, lists:["customers","sites","assets"], load:CUST_LOAD, step:"Customers & Sites — search, create and edit; each site shows its equipment and full job history" },
   quotes:    { label:"Quotes",            roles:OFFICE, lists:["quotes","qlines","rates","numbers"], load:["quotes","qlines","rates","settings","customers","sites","jobs"], step:"Quotes — labour and parts lines, GST, print/PDF, email, follow-up list, Convert to Job" },
   jobs:      { label:"Job Centre",        roles:OFFICE, lists:["jobs","assign","time","mat","notes","comp","resp","numbers"], load:["jobs","assign","time","mat","notes","comp","resp","chk","inv","customers","sites","assets","rates","settings","quotes","trn","tt","inc","supp"], step:"Job Centre — filterable job grid and the job page (Details, Schedule, Time, Materials, Notes & Photos, Checklists, Safety, Invoice)" },
@@ -211,7 +214,7 @@ const ROUTES = {
 };
 
 /* ---------------- state ---------------- */
-const S = { have:new Set(), staff:[], me:null, role:"", roleSource:"", viewAs:"", route:"", param:"" };
+const S = { have:new Set(), staff:[], me:null, role:"", roleSource:"", viewAs:"", route:"", param:"", branch:"" };
 
 /* ---------------- role detection ----------------
    The role only decides which screens open. SharePoint permissions still decide
@@ -229,6 +232,38 @@ const effRole = () => S.viewAs ? "Technician" : S.role;
 const techName = () => S.viewAs || S.me?.Title || account?.name || "";
 const technicians = () => S.staff.filter(s => s.StaffStatus !== "Left" && (s.HubRole === "Technician" || s.Department === "Service"))
   .map(s => s.Title).sort((a,b) => a.localeCompare(b));
+
+/* ---------------- branches ----------------
+   Port Moresby (head office, the first in Settings → Branches) and Lae. Staff see their own branch.
+   Admins, staff marked "All branches" (Settings → Staff & roles) and anyone not in the staff list get a picker.
+   This keeps each office's screens tidy; it is not a security barrier (the lists are shared on the site).
+   Split by branch: jobs, quotes, bookings, the dashboard and Job Centre. Shared: customers, sites, suppliers, staff, rates.
+   A job or quote with no branch counts as the head office. Technicians' My Jobs is never filtered. */
+function branches(){
+  const seen = new Set(pickList("Branches"));
+  [S.staff, D.jobs || [], D.quotes || [], D.sites || []].forEach(a => a.forEach(r => { const b = String(r.Branch || "").trim(); if (b) seen.add(b); }));
+  return [...seen];
+}
+const headOffice = () => branches()[0] || "";
+const brOf = r => String(r?.Branch || "").trim() || headOffice();
+const allBranchesOK = () => DEMO || !S.me || S.role === "Admin" || S.me.AllBranches === "Yes";
+function applyBranchAccess(){
+  if (!allBranchesOK()) { S.branch = branches().length ? brOf(S.me) : ""; return; }
+  if (!applyBranchAccess.done){ applyBranchAccess.done = true; try { S.branch = localStorage.getItem(mjeStoreKey("mjeServiceBranch")) || ""; } catch {} }
+  if (S.branch && !branches().includes(S.branch)) S.branch = "";
+}
+function inBranch(fn){
+  if (!S.branch || S.route === "my" || S.viewAs) return fn();
+  const keep = { jobs:D.jobs, quotes:D.quotes, assign:D.assign };
+  try {
+    if (D.jobs) D.jobs = keep.jobs.filter(j => brOf(j) === S.branch);
+    if (D.quotes) D.quotes = keep.quotes.filter(q => brOf(q) === S.branch);
+    // bookings stay whole on the Scheduler, so a technician booked by the other office still shows as busy
+    if (D.assign && S.route !== "schedule"){ const mine = new Set((D.jobs || []).map(j => j.Title)); D.assign = keep.assign.filter(a => mine.has(a.Title)); }
+    return fn();
+  } finally { Object.assign(D, Object.fromEntries(Object.entries(keep).filter(([, v]) => v))); }
+}
+const brDefault = () => S.branch || (branches().length ? brOf(S.me) : "");
 
 /* ---------------- data: each list is read once, then kept until Refresh ---------------- */
 const D = {}, LOADING = {};
@@ -319,10 +354,16 @@ function renderHeader(){
   nav.innerHTML = items.map(([k, v]) => `<button data-route="${k}" class="${k === lit ? "on" : ""}">${v.label}</button>`).join("");
   nav.hidden = !items.length;
   nav.querySelectorAll("[data-route]").forEach(b => b.onclick = () => go(b.dataset.route));
-  $("#who").innerHTML = `<span class="sync" id="sync"></span><span class="nm">${esc(account?.name || account?.username || "")}</span>`
+  applyBranchAccess();
+  const bl = branches(), office = OFFICE.includes(r);
+  $("#who").innerHTML = (office && bl.length > 1 ? (allBranchesOK()
+      ? `<select class="brsel" id="brSel" aria-label="Branch"><option value="">All branches</option>${bl.map((b, i) => `<option value="${esc(b)}" ${b === S.branch ? "selected" : ""}>${esc(b)}${i === 0 ? " (head office)" : ""}</option>`).join("")}</select>`
+      : `<span class="brpill" title="You see ${esc(S.branch)}'s jobs and quotes. An admin can give you all branches in Settings → Staff & roles.">${esc(S.branch)}</span>`) : "")
+    + `<span class="sync" id="sync"></span><span class="nm">${esc(account?.name || account?.username || "")}</span>`
     + (S.role ? `<span class="rolepill" title="Service Hub role${S.roleSource === "setup" ? " (first-run set-up)" : ""}">${esc(S.viewAs ? "Tech view" : S.role)}</span>` : "")
     + (DEMO ? "" : `<button id="so">Sign out</button>`);
   if ($("#so")) $("#so").onclick = signOut;
+  if ($("#brSel")) $("#brSel").onchange = e => { S.branch = e.target.value; try { localStorage.setItem(mjeStoreKey("mjeServiceBranch"), S.branch); } catch {} render(); };
   showSync();
   if (r === "Technician") { const sy = $("#sync"); sy.style.cursor = "pointer"; sy.setAttribute("role", "button"); sy.tabIndex = 0; sy.onclick = openSyncPanel; }
 }
@@ -361,7 +402,7 @@ function render(){
     return;
   }
   const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, suppliers:viewSuppliers, my:viewMy }[S.route] || viewNoAccess;
-  $("#main").innerHTML = banner + view();
+  $("#main").innerHTML = banner + inBranch(view);
   if ($("#backOffice")) $("#backOffice").onclick = () => { S.viewAs = ""; go("dash"); };
   bindView();
   if (S.route === "dash" || S.route === "jobs") syncJobStatuses();
@@ -959,14 +1000,16 @@ function rolesEditor(){
   const staff = [...S.staff].filter(s => s.StaffStatus !== "Left").sort((a, b) => (a.Department || "").localeCompare(b.Department || "") || a.Title.localeCompare(b.Title));
   return `<div class="bar" id="roles" style="margin-top:22px"><h2>Staff &amp; roles</h2><span class="grow"></span><span class="count" id="rolesDirty"></span><button class="btn primary" id="saveRoles" disabled>Save changes</button></div>
   <p class="count" style="margin:-6px 0 12px"><b>M365 email</b> is the address the person signs in with — leave it blank for staff without a Microsoft 365 account (the office enters their time and sign-offs).
-    <b>Technician</b> opens My Jobs on the phone; <b>Office</b> and <b>Admin</b> open the office screens (Admin will also edit Settings). Only ${esc(BRAND.SHORT)} site owners can save changes here.
+    <b>Technician</b> opens My Jobs on the phone; <b>Office</b> and <b>Admin</b> open the office screens (Admin will also edit Settings).
+    Office staff see their own <b>Branch</b>'s jobs and quotes; <b>All branches</b> = Yes (and every Admin) gets the branch picker instead. Only ${esc(BRAND.SHORT)} site owners can save changes here.
     Staff are added in the Safety Hub (Training → Staff), which has the same fields.</p>
-  <div class="tablewrap"><table class="setup roles"><thead><tr><th>Name</th><th>Position</th><th>Department</th><th>M365 email (sign-in)</th><th>Service Hub role</th><th>Team</th><th>Branch</th></tr></thead><tbody>
+  <div class="tablewrap"><table class="setup roles"><thead><tr><th>Name</th><th>Position</th><th>Department</th><th>M365 email (sign-in)</th><th>Service Hub role</th><th>Team</th><th>Branch</th><th title="Sees every branch and gets the branch picker (admins always do)">All branches</th></tr></thead><tbody>
   ${staff.map(s => `<tr data-sid="${esc(s.id)}"${s === S.me ? ' class="me"' : ""}><td><b>${esc(s.Title)}</b>${s === S.me ? ` <span class="pill p-info">you</span>` : ""}</td><td>${esc(s.Position || "")}</td><td>${esc(s.Department || "")}</td>
     <td><input type="email" data-k="Email" value="${esc(s.Email || "")}" placeholder="name@company" autocomplete="off"></td>
     <td><select data-k="HubRole">${HUB_ROLES.map(([v, l]) => `<option value="${v}" ${(s.HubRole || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
     ${["Teams","Branches"].map(k => { const key = k === "Teams" ? "Team" : "Branch", cur = s[key] || "", o = [...new Set([...pickList(k), ...(cur ? [cur] : [])])];
-      return `<td><select data-k="${key}"><option value=""></option>${o.map(x => `<option ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></td>`; }).join("")}</tr>`).join("")}
+      return `<td><select data-k="${key}"><option value=""></option>${o.map(x => `<option ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></td>`; }).join("")}
+    <td><select data-k="AllBranches"><option value="">No</option><option value="Yes" ${s.AllBranches === "Yes" ? "selected" : ""}>Yes</option></select></td></tr>`).join("")}
   </tbody></table>${staff.length ? "" : `<div class="empty">No active staff in ${esc(CONFIG.LISTS.staff)}</div>`}</div>`;
 }
 let rolesWarned = false;
@@ -1060,7 +1103,7 @@ const FORMS = {
       ["PaymentTermsDays","Payment terms (days)","number",{min0:1}], ["CODOnly","Cash on delivery (COD) only?","select",{opts:["No","Yes"]}], ["TIN","TIN","text"], ["BillingAddress","Billing address","textarea",{w:3}] ]],
     ["Notes", [["Notes","Notes","textarea",{w:3}]]] ] },
   site: { list:"sites", name:"Site", kind:"Customers & Sites · Site", counter:"S", code:"SiteCode", prefix:"S-", width:4, sections:[
-    ["Site", [["Title","Site name","text",{req:1,w:2}], ["SiteCode","Site code","text",{ro:1}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}], ["SiteStatus","Status","select",{opts:["Active","Inactive"]}], ["Branch","Branch","select",{opts:() => pickList("Branches")}] ]],
+    ["Site", [["Title","Site name","text",{req:1,w:2}], ["SiteCode","Site code","text",{ro:1}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}], ["SiteStatus","Status","select",{opts:["Active","Inactive"]}], ["Branch","Branch","select",{opts:() => branches()}] ]],
     ["Location", [["Address","Street address / directions","textarea",{w:3}], ["Town","Town","text"], ["Province","Province","select",{opts:PROVINCES,w:2}],
       ["Latitude","Latitude (e.g. -9.4438)","number"], ["Longitude","Longitude (e.g. 147.1803)","number"], ["_gps","","gps"] ]],
     ["Site contact", [["ContactName","Name","text"], ["ContactPhone","Phone","tel"], ["ContactEmail","Email","email"] ]],
@@ -1074,7 +1117,7 @@ const FORMS = {
   quote: { list:"quotes", name:"Quote", kind:"Quotes · Quote", code:"Title", numbering:"quote", sections:[
     ["Customer", [["Title","Quote no.","text",{ro:1}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}], ["SiteCode","Site","select",{w:2,opts:() => siteOpts(FORM_CUST)}],
       ["JobType","Job type","select",{opts:JOB_TYPES,req:1}], ["ContactName","Attention (contact name)","text"], ["ContactEmail","Contact email — the quote is emailed here","email",{w:2}] ]],
-    ["Quote", [["QuoteType","Quote or tender","select",{opts:["Quote","Tender"],req:1}], ["Division","Division","select",{opts:() => pickList("Divisions")}], ["ActionedBy","Actioned by","select",{opts:() => staffOpts()}],
+    ["Quote", [["Branch","Branch","select",{opts:() => branches()}], ["QuoteType","Quote or tender","select",{opts:["Quote","Tender"],req:1}], ["Division","Division","select",{opts:() => pickList("Divisions")}], ["ActionedBy","Actioned by","select",{opts:() => staffOpts()}],
       ["QuoteDate","Quote date","date",{req:1}], ["ValidUntil","Valid until","date",{req:1}], ["ClosingDate","Tender closing date","date"],
       ["Scope","Scope of work (printed on the quote)","textarea",{w:3}], ["Terms","Terms (printed on the quote)","textarea",{w:3}], ["Notes","Internal notes (not printed)","textarea",{w:3}] ]],
     ["Approval", [["ApprovalDate","Approval date","date"], ["ApprovalRef","Approval ref (PO / WO / COD)","text"], ["ApprovedAmountEx","Approved amount (ex GST)","number",{min0:1}] ], {editOnly:1}] ] },
@@ -1084,11 +1127,11 @@ const FORMS = {
     ["Job", [["JobType","Job type","select",{opts:JOB_TYPES,req:1}], ["Division","Division","select",{opts:() => pickList("Divisions")}], ["Priority","Priority","select",{opts:PRIORITIES,req:1}],
       ["InstructionMethod","Instruction received by","select",{opts:() => pickList("InstructionMethods")}], ["CustomerOrderNo","Customer order no. (PO / WO)","text"],
       ["DateReceived","Date received","date",{req:1}], ["DueDate","Due date","date"], ["EstimatedHours","Estimated hours","number",{min0:1}], ["Description","Work to do","textarea",{req:1,w:3}] ]],
-    ["Who looks after it", [["Branch","Branch","select",{opts:() => pickList("Branches")}], ["Team","Team","select",{opts:() => pickList("Teams")}], ["Supervisor","Supervisor","select",{opts:() => staffOpts()}] ]],
+    ["Who looks after it", [["Branch","Branch","select",{opts:() => branches()}], ["Team","Team","select",{opts:() => pickList("Teams")}], ["Supervisor","Supervisor","select",{opts:() => staffOpts()}] ]],
     ["Billing", [["BillingBasis","Billing","select",{opts:["Do & charge","Fixed price (quoted)"],req:1}], ["QuotedAmountEx","Fixed price (ex GST)","number",{min0:1}], ["COD","Cash on delivery (COD)?","select",{opts:["No","Yes"]}], ["QuoteNo","From quote","text",{ro:1}] ]],
     ["Checklists & notes", [["RequiredChecklists","Required checklists — template names, separated by ;","text",{w:3}], ["InternalNotes","Internal notes (not shown to technicians)","textarea",{w:3}] ]] ] },
   supp: { list:"supp", name:"Supplier", kind:"Customers & Sites · Supplier", code:"SupplierCode", codeStyle:"myob", sections:[
-    ["Supplier", [["Title","Supplier name","text",{req:1,w:2}], ["SupplierCode","Supplier code (TSM / MYOB)","text",{roEdit:1}], ["Branch","Branch","select",{opts:() => pickList("Branches")}],
+    ["Supplier", [["Title","Supplier name","text",{req:1,w:2}], ["SupplierCode","Supplier code (TSM / MYOB)","text",{roEdit:1}], ["Branch","Branch","select",{opts:() => branches()}],
       ["SupplierStatus","Status","select",{opts:["Active","Inactive"]}] ]],
     ["Contact", [["ContactName","Contact name","text"], ["Phone","Phone","tel"], ["Mobile","Mobile","tel"], ["Email","Email","email",{w:2}], ["Address","Address","textarea",{w:3}] ]],
     ["Notes", [["Notes","What we buy from them, account no., notes","textarea",{w:3}]]] ] },
@@ -1118,11 +1161,11 @@ function readForm(){ const o = {}; $("#dlgBody").querySelectorAll("[name]").forE
 const numericFields = kind => new Set(FORMS[kind].sections.flatMap(s => s[1]).filter(f => f[2] === "number").map(f => f[0]));
 function formDefaults(kind){
   if (kind === "cust") return { CustomerType:"Commercial", CustomerStatus:"Active", CODOnly:"No", PaymentTermsDays: num(setting("PaymentTermsDays", 30)) };
-  if (kind === "supp") return { SupplierStatus:"Active", Branch: S.me?.Branch || "" };
+  if (kind === "supp") return { SupplierStatus:"Active", Branch: brDefault() };
   if (kind === "site") return { SiteStatus:"Active", Province:"National Capital District" };
-  if (kind === "quote") return { QuoteType:"Quote", QuoteDate:TODAY, ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))), JobType:"Service / Break-fix", Terms: setting("QuoteTerms", ""), ActionedBy: S.me?.Title || "" };
+  if (kind === "quote") return { Branch: brDefault(), QuoteType:"Quote", QuoteDate:TODAY, ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))), JobType:"Service / Break-fix", Terms: setting("QuoteTerms", ""), ActionedBy: S.me?.Title || "" };
   if (kind === "rate") return { RateUnit:"Hour", RateStatus:"Active" };
-  if (kind === "job") return { DateReceived:TODAY, Priority:"Normal", JobType:"Service / Break-fix", BillingBasis:"Do & charge", COD:"No", Branch: S.me?.Branch || "", Team: S.me?.Team || "", RequiredChecklists: jobChecklistDefault("Service / Break-fix") };
+  if (kind === "job") return { DateReceived:TODAY, Priority:"Normal", JobType:"Service / Break-fix", BillingBasis:"Do & charge", COD:"No", Branch: brDefault(), Team: S.me?.Team || "", RequiredChecklists: jobChecklistDefault("Service / Break-fix") };
   return { AssetStatus:"In service" };
 }
 let EDIT = null;
@@ -1746,7 +1789,7 @@ async function openVariant(q){
   const base = quoteBase(q.Title), used = new Set(D.quotes.map(x => x.Title));
   let letter = "A"; while (used.has(base + letter) && letter < "Z") letter = String.fromCharCode(letter.charCodeAt(0) + 1);
   if (used.has(base + letter)) return toast("No more option letters left for " + base);
-  const no = base + letter, keep = ["CustomerCode","CustomerName","SiteCode","SiteName","JobType","Division","QuoteType","ContactName","ContactEmail","Scope","Terms","ClosingDate"];
+  const no = base + letter, keep = ["Branch","CustomerCode","CustomerName","SiteCode","SiteName","JobType","Division","QuoteType","ContactName","ContactEmail","Scope","Terms","ClosingDate"];
   const nq = { Title:no, QuoteStatus:"Draft", QuoteDate:TODAY, ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))), PreparedBy: S.me?.Title || account?.name || "", ActionedBy: q.ActionedBy || S.me?.Title || "",
     Notes:`Option ${letter} of ${q.Title}` };
   keep.forEach(k => { if (q[k] != null && q[k] !== "") nq[k] = q[k]; });
@@ -1774,7 +1817,7 @@ function openConvert(q){
       const job = { Title:no, JobType: q.JobType || "Service / Break-fix", Priority: val("pri") || "Normal", JobStatus:"New", CustomerCode:q.CustomerCode, CustomerName:q.CustomerName,
         SiteCode:q.SiteCode, SiteName:q.SiteName, QuoteNo:q.Title, Description:q.Scope, CustomerOrderNo: val("po"), ContactName:q.ContactName, DateReceived:TODAY,
         DueDate: val("due"), EstimatedHours: hrs || null, BillingBasis: val("basis"), QuotedAmountEx: q.ApprovedAmountEx ?? t.sub,
-        Division: q.Division, InstructionMethod: "Quote approved", Branch: S.me?.Branch, Team: S.me?.Team,
+        Division: q.Division, InstructionMethod: "Quote approved", Branch: q.Branch || brDefault(), Team: S.me?.Team,
         COD: D.customers.find(c => c.CustomerCode === q.CustomerCode)?.CODOnly === "Yes" || /cod/i.test(q.ApprovalRef || "") ? "Yes" : "No" };
       if (!q.ApprovalRef && val("po")) job.CustomerOrderNo = val("po"); else if (q.ApprovalRef && !val("po")) job.CustomerOrderNo = q.ApprovalRef;
       Object.keys(job).forEach(k => { if (job[k] === "" || job[k] == null) delete job[k]; });
@@ -2061,7 +2104,7 @@ function viewJobs(){
   </div>
   <div class="bar"><input type="search" id="jq" placeholder="Search job no., customer, site, description, order no., technician…" value="${esc(f.q)}">
     <select class="f" id="jtype"><option value="">All job types</option>${JOB_TYPES.map(t => `<option ${t === f.type ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
-    ${[["division","All divisions",pickList("Divisions")],["team","All teams",pickList("Teams")],["branch","All branches",pickList("Branches")],
+    ${[["division","All divisions",pickList("Divisions")],["team","All teams",pickList("Teams")],["branch","All branches",S.branch ? [] : branches()],
        ["sup","All supervisors",[...new Set(D.jobs.map(j => j.Supervisor).filter(Boolean))].sort()]].filter(([k, , o]) => o.length || f[k])
       .map(([k, all, o]) => `<select class="f" data-jsel="${k}" aria-label="${all}"><option value="">${all}</option>${[...new Set([...o, ...(f[k] ? [f[k]] : [])])].map(x => `<option ${x === f[k] ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`).join("")}
     <span class="count">${rows.length} of ${jobs.length}</span></div>
@@ -2451,6 +2494,12 @@ const liveBookings = () => D.assign.filter(a => a.AssignStatus !== "Cancelled");
 function schedRows(from, to){
   const keep = n => { const p = S.staff.find(s => s.Title === n); return (!S.sf.team || p?.Team === S.sf.team) && (!S.sf.branch || p?.Branch === S.sf.branch); };
   if (S.sf.team || S.sf.branch) return technicians().filter(keep);
+  if (S.branch){
+    const ours = new Set(D.jobs.filter(j => brOf(j) === S.branch).map(j => j.Title));
+    const names = technicians().filter(n => brOf(S.staff.find(s => s.Title === n)) === S.branch);
+    const booked = liveBookings().filter(a => a.AssignDate >= from && a.AssignDate <= to && ours.has(a.Title)).map(a => a.Technician).filter(Boolean);
+    return [...names, ...[...new Set(booked)].filter(n => !names.includes(n)).sort((a, b) => a.localeCompare(b))];
+  }
   const names = technicians(), inRange = liveBookings().filter(a => a.AssignDate >= from && a.AssignDate <= to).map(a => a.Technician).filter(Boolean);
   return [...names, ...[...new Set(inRange)].filter(n => !names.includes(n)).sort((a, b) => a.localeCompare(b))];
 }
