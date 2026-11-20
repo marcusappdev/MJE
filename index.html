@@ -11,6 +11,8 @@
   header .brsel{width:auto;max-width:210px;flex:none;margin-left:auto;background:#2b3640;color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:5px 8px;font:inherit;font-size:13px}
   header .brsel + .who{margin-left:12px}
   header .brsel option{color:#111;background:#fff}
+  header .brpill{margin-left:auto;font-size:12px;border:1px solid rgba(255,255,255,.3);border-radius:5px;padding:2px 8px;color:#fff;white-space:nowrap}
+  header .brpill + .who{margin-left:12px}
 
 /* Safety Hub only — everything shared with the Service Hub is in shared/mje.css */
 .hm{display:grid;grid-template-columns:18px 1fr;grid-template-rows:auto auto;gap:4px}
@@ -567,7 +569,7 @@ const MONTHS = ["January","February","March","April","May","June","July","August
 const DEPTS = ["Administration","Service","Projects","Other"];
 const STAFF_FORM = [["Staff member", [
   ["Title","Full name","text",{req:1}], ["EmployeeNo","Employee no.","text"], ["Position","Position","text",{req:1}],
-  ["Department","Department","select",{opts:DEPTS,req:1}], ["StaffStatus","Status","select",{opts:["Active","Left"]}], ["Branch","Branch","select",{dyn:"branch"}], ["Notes","Notes","textarea",{w:3}] ]],
+  ["Department","Department","select",{opts:DEPTS,req:1}], ["StaffStatus","Status","select",{opts:["Active","Left"]}], ["Branch","Branch","select",{dyn:"branch"}], ["AllBranches","Sees all branches","select",{opts:["No","Yes"],brOnly:1}], ["Notes","Notes","textarea",{w:3}] ]],
   ["Service Hub access", [
   ["Email","M365 email (sign-in) — leave blank if no account","email",{w:2}], ["HubRole","Service Hub role","select",{opts:["Technician","Office","Admin","None"]}],
   ["Initials","Initials","text"], ["Mobile","Mobile","tel"] ]]];
@@ -630,9 +632,19 @@ function inBranch(fn){
   finally { Object.assign(S, full); }
 }
 const brTag = () => S.branch ? ` · ${esc(S.branch)}${S.branch === headOffice() ? " (head office)" : ""}` : (branches().length > 1 ? " · all branches" : "");
-function myBranch(){ const me = String(account?.username || "").toLowerCase(); const s = me && S.staff.find(x => String(x.Email || "").toLowerCase() === me); return s?.Branch || ""; }
+const myStaff = () => { const me = String(account?.username || "").toLowerCase(); return me ? S.staff.find(x => String(x.Email || "").toLowerCase() === me) : null; };
+function myBranch(){ return myStaff()?.Branch || ""; }
+// Staff see their own branch. Service Hub admins, staff marked "All branches" and anyone not in the staff list get the picker.
+// This keeps each office's screens tidy; it is not a security barrier (the lists are shared on the site).
+const allBranchesOK = () => { if (DEMO) return true; const m = myStaff(); return !m || m.HubRole === "Admin" || m.AllBranches === "Yes"; };
 function setupBranchPicker(){
   const sel = $("#brSel"), list = branches();
+  if (!allBranchesOK() && list.length){
+    S.branch = brOf(myStaff()); sel.hidden = true;
+    let pill = $("#brPill"); if (!pill){ pill = document.createElement("span"); pill.id = "brPill"; pill.className = "brpill"; sel.after(pill); }
+    pill.textContent = S.branch; pill.title = `You see ${S.branch}'s records. A site owner can give you all branches (Training → Staff → All branches).`;
+    return;
+  }
   if (S.branch && !list.includes(S.branch)) S.branch = "";
   sel.hidden = list.length < 2 && !S.branch;
   sel.innerHTML = `<option value="">All branches</option>` + list.map((b, i) => `<option value="${esc(b)}" ${b === S.branch ? "selected" : ""}>${esc(b)}${i === 0 ? " (head office)" : ""}</option>`).join("");
@@ -1529,7 +1541,7 @@ function render(){
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("on", b.dataset.v === S.view));
   const banner = DEMO ? `<div class="banner">Demo mode — showing the existing registers as sample data. Changes are kept only until you refresh. Add the app registration details to CONFIG to connect to SharePoint.</div>` : "";
   const tb = S.tile && S.view !== "dash" ? `<div class="filterbar" style="--fbc:var(--c-${GO_LABEL[S.tile][1]})"><span class="ft">Showing from dashboard:</span> <b>${esc(GO_LABEL[S.tile][0])}</b><span class="grow"></span><button class="fchip" data-clearall="1">✕ Clear filter</button></div>` : "";
-  const brBanner = S.branch ? `<div class="filterbar" style="--fbc:var(--c-rev)"><span class="ft">Branch:</span> <b>${esc(S.branch)}</b>${S.branch === headOffice() ? ` <span class="count">head office — includes records with no branch</span>` : ""}<span class="grow"></span><button class="fchip" id="brAll">Show all branches</button></div>` : "";
+  const brBanner = S.branch ? `<div class="filterbar" style="--fbc:var(--c-rev)"><span class="ft">Branch:</span> <b>${esc(S.branch)}</b>${S.branch === headOffice() ? ` <span class="count">head office — includes records with no branch</span>` : ""}<span class="grow"></span>${allBranchesOK() ? `<button class="fchip" id="brAll">Show all branches</button>` : ""}</div>` : "";
   $("#main").innerHTML = banner + brBanner + tb + inBranch(() => ({ dash:viewDash, inc:viewInc, imp:viewImp, risk:viewRisk, assets:viewAssets, training:viewTraining, comp:viewCompliance, rpt:viewReports }[S.view])());
   if ($("#brAll")) $("#brAll").onclick = () => { $("#brSel").value = ""; $("#brSel").onchange(); };
   bindView(); bindReports();
@@ -1803,7 +1815,7 @@ function fieldHtml([name, label, type, o = {}], v){
   const cls = `fld ${o.w===3?"w3":o.w===2?"w2":""}`, lab = `<span class="${o.req?"req":""}">${label}</span>`;
   const attrs = `name="${name}" ${o.req?"required":""} ${o.ro?"readonly tabindex=-1":""}`;
   if (type === "textarea") return `<label class="${cls}">${lab}<textarea ${attrs}>${esc(v)}</textarea></label>`;
-  if (o.dyn === "branch" && !branches().length && !v) return "";
+  if ((o.dyn === "branch" || o.brOnly) && !branches().length && !v) return "";
   if (type === "select"){
     const base = o.dyn === "branch" ? branches() : o.dyn ? (o.dyn === "staff" ? activeStaff() : S[o.dyn]).map(r => r.Title).sort((a,b) => a.localeCompare(b)) : o.opts;
     const list = base.includes(v) || !v ? base : [...base, v];     // keep fill-in values
