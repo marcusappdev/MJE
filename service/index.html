@@ -144,6 +144,11 @@ main.tech .card{margin-bottom:12px}main.tech .empty{padding:10px 6px}.mysec .cou
 .ph .phf{width:110px;height:110px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;text-align:center;font-size:12px;background:var(--grey-bg);color:var(--text)}
 .sync[role=button]:hover{text-decoration:underline}
 @media (max-width:720px){ main.tech{padding:12px} main.tech .bar h2{font-size:20px} }
+.kpi.k-po{--kc:#0f766e}#dlg.f-po{--fc:#0f766e;--fc-bg:#ecf8f5}
+@media (prefers-color-scheme:dark){ .kpi.k-po{--kc:#2dd4bf} #dlg.f-po{--fc:#2dd4bf;--fc-bg:#10241f} }
+table.rcv{min-width:0}table.rcv input.num{width:90px}
+/* eight menu items: below 1400 px the menu moves to its own row instead of pushing the page sideways */
+@media (max-width:1400px){ header{flex-wrap:wrap} header nav{order:3;width:100%;margin:0;overflow:auto} }
 </style>
 </head>
 <body>
@@ -179,7 +184,7 @@ const CONFIG = {
     jobs:"Jobs", assign:"JobAssignments", time:"TimeEntries", mat:"JobMaterials", notes:"JobNotes",
     comp:"JobCompletions", chk:"Checklists", resp:"ChecklistResponses", files:"JobFiles",
     inv:"Invoices", iline:"InvoiceLines", pay:"InvoicePayments", sync:"MyobSync",
-    rates:"LabourRates", settings:"ServiceSettings", numbers:"ServiceNumbers", supp:"Suppliers", prod:"Products", contacts:"Contacts",
+    rates:"LabourRates", settings:"ServiceSettings", numbers:"ServiceNumbers", supp:"Suppliers", prod:"Products", contacts:"Contacts", po:"PurchaseOrders", poline:"PurchaseOrderLines",
     // Safety Hub lists the Service Hub reads
     staff:"Staff", trn:"Training", course:"Courses", tt:"TestTag", risk:"Risks", inc:"Incidents",
   }),
@@ -192,7 +197,7 @@ const LIST_INFO = {
   customers:"Customers (billing entities)", sites:"Service sites", assets:"Customer equipment", quotes:"Quotes", qlines:"Quote lines",
   jobs:"Jobs", assign:"Technician bookings", time:"Time entries", mat:"Job materials", notes:"Job notes & photos", comp:"Job completions",
   chk:"Checklist templates", resp:"Checklist answers", files:"Job files library", inv:"Invoices", iline:"Invoice lines", pay:"Payments",
-  sync:"MYOB sync queue", rates:"Labour rates", settings:"Service settings", numbers:"Number counters", supp:"Suppliers", prod:"Products (stock catalogue)", contacts:"Customer contacts",
+  sync:"MYOB sync queue", rates:"Labour rates", settings:"Service settings", numbers:"Number counters", supp:"Suppliers", prod:"Products (stock catalogue)", contacts:"Customer contacts", po:"Purchase orders", poline:"Purchase order lines",
   staff:"Staff (Safety Hub)", trn:"Training records (Safety Hub)", course:"Courses (Safety Hub)", tt:"Test & tag (Safety Hub)",
   risk:"Risk registers (Safety Hub)", inc:"Incidents (Safety Hub)" };
 const SAFETY_KEYS = ["staff","trn","course","tt","risk","inc"];
@@ -204,7 +209,8 @@ const ROUTES = {
   dash:      { label:"Dashboard",         roles:OFFICE, lists:["jobs","assign","quotes","inv","comp","time","mat","rates"], load:["jobs","assign","quotes","inv","comp","time","mat","rates","settings"], step:"Dashboard — jobs by status, today's schedule, unscheduled jobs, quotes pending approval, completed-not-invoiced value, overdue jobs" },
   customers: { label:"Customers & Sites", roles:OFFICE, lists:["customers","sites","assets"], load:CUST_LOAD, step:"Customers & Sites — search, create and edit; each site shows its equipment and full job history" },
   quotes:    { label:"Quotes",            roles:OFFICE, lists:["quotes","qlines","rates","numbers"], load:["quotes","qlines","rates","settings","customers","sites","jobs","prod","contacts"], step:"Quotes — labour and parts lines, GST, print/PDF, email, follow-up list, Convert to Job" },
-  jobs:      { label:"Job Centre",        roles:OFFICE, lists:["jobs","assign","time","mat","notes","comp","resp","numbers"], load:["jobs","assign","time","mat","notes","comp","resp","chk","inv","customers","sites","assets","rates","settings","quotes","trn","tt","inc","supp","prod","contacts"], step:"Job Centre — filterable job grid and the job page (Details, Schedule, Time, Materials, Notes & Photos, Checklists, Safety, Invoice)" },
+  jobs:      { label:"Job Centre",        roles:OFFICE, lists:["jobs","assign","time","mat","notes","comp","resp","numbers"], load:["jobs","assign","time","mat","notes","comp","resp","chk","inv","customers","sites","assets","rates","settings","quotes","trn","tt","inc","supp","prod","contacts","po"], step:"Job Centre — filterable job grid and the job page (Details, Schedule, Time, Materials, Notes & Photos, Checklists, Safety, Purchases, Invoice)" },
+  purchases: { label:"Purchasing",        roles:OFFICE, lists:["po","poline","supp","numbers"], load:["po","supp","prod","jobs","settings","customers","sites"], step:"" },
   schedule:  { label:"Scheduler",         roles:OFFICE, lists:["jobs","assign","staff"], load:["jobs","assign","time","comp","customers","sites","settings","trn","tt"], step:"Scheduler — one row per technician, day and week views, drag and drop, clash warnings" },
   invoices:  { label:"Invoicing",         roles:OFFICE, lists:["inv","iline","pay","sync","numbers"], step:"Invoicing — invoices from completed jobs, deposits, progress, credit notes, payments, Send to MYOB" },
   settings:  { label:"Settings",          roles:OFFICE, lists:["settings","rates","numbers","chk"], load:["settings","rates"], step:"" },
@@ -239,7 +245,7 @@ const technicians = () => S.staff.filter(s => s.StaffStatus !== "Left" && (s.Hub
    Port Moresby (head office, the first in Settings → Branches) and Lae. Staff see their own branch.
    Admins, staff marked "All branches" (Settings → Staff & roles) and anyone not in the staff list get a picker.
    This keeps each office's screens tidy; it is not a security barrier (the lists are shared on the site).
-   Split by branch: jobs, quotes, bookings, the dashboard and Job Centre. Shared: customers, sites, suppliers, staff, rates.
+   Split by branch: jobs, quotes, bookings, purchase orders, the dashboard and Job Centre. Shared: customers, sites, suppliers, staff, rates.
    A job or quote with no branch counts as the head office. Technicians' My Jobs is never filtered. */
 function branches(){
   const seen = new Set(pickList("Branches"));
@@ -256,9 +262,10 @@ function applyBranchAccess(){
 }
 function inBranch(fn){
   if (!S.branch || S.route === "my" || S.viewAs) return fn();
-  const keep = { jobs:D.jobs, quotes:D.quotes, assign:D.assign };
+  const keep = { jobs:D.jobs, quotes:D.quotes, assign:D.assign, po:D.po };
   try {
     if (D.jobs) D.jobs = keep.jobs.filter(j => brOf(j) === S.branch);
+    if (D.po) D.po = keep.po.filter(p => brOf(p) === S.branch);
     if (D.quotes) D.quotes = keep.quotes.filter(q => brOf(q) === S.branch);
     // bookings stay whole on the Scheduler, so a technician booked by the other office still shows as busy
     if (D.assign && S.route !== "schedule"){ const mine = new Set((D.jobs || []).map(j => j.Title)); D.assign = keep.assign.filter(a => mine.has(a.Title)); }
@@ -272,9 +279,18 @@ const D = {}, LOADING = {};
 /* Lists that grow by thousands a year are read for a window only: the last LoadDays days (Settings, default 120)
    — bookings also include everything ahead. Opening a job reads that job's whole history (needJob).
    "Load all history" reads everything. S.win[k] holds the window start while D[k] is a window.          */
-const WINDOW = { time:"EntryDate", mat:"EntryDate", notes:"NoteDate", comp:"CompletedDate", resp:"ResponseDate", assign:"AssignDate", inv:"InvoiceDate" };
-const JOBKEY = { time:"JobNo", mat:"Title", notes:"Title", comp:"Title", resp:"Title", assign:"Title", inv:"JobNo" };
-S.win = {}; S.jobFull = new Set(); S.jobLoading = new Set(); S.history = "";
+const WINDOW = { time:"EntryDate", mat:"EntryDate", notes:"NoteDate", comp:"CompletedDate", resp:"ResponseDate", assign:"AssignDate", inv:"InvoiceDate", po:"OrderDate" };
+const JOBKEY = { time:"JobNo", mat:"Title", notes:"Title", comp:"Title", resp:"Title", assign:"Title", inv:"JobNo", po:"JobNo" };
+// Rows always read whatever their date: purchase orders still waiting for goods
+const WINDOW_ALSO = { po: ["Draft","Sent","Part received"].map(st => `fields/POStatus eq '${st}'`) };
+async function listWindow(k, filter){
+  if (!filter || !WINDOW_ALSO[k]) return listItems(CONFIG.LISTS[k], filter);
+  const parts = await Promise.all([filter, ...WINDOW_ALSO[k]].map(f => listItems(CONFIG.LISTS[k], f)));
+  if (parts.some(r => r.filtered === false)) return parts.find(r => r.filtered === false);
+  const seen = new Set(), out = []; parts.flat().forEach(r => { if (!seen.has(r.id)) { seen.add(r.id); out.push(r); } });
+  out.filtered = true; return out;
+}
+S.win = {}; S.jobFull = new Set(); S.jobLoading = new Set(); S.history = ""; S.poRead = new Set();
 const loadDays = () => { const n = Math.round(num(setting("LoadDays", 120))); return n >= 7 ? n : 120; };
 const windowed = () => Object.keys(S.win).length > 0;
 async function need(keys, soft){
@@ -284,7 +300,7 @@ async function need(keys, soft){
     if (D[k]) return null;
     if (DEMO || !S.have.has(CONFIG.LISTS[k])) { D[k] = []; return null; }       // not set up yet: treat as empty
     const filter = !S.history && WINDOW[k] ? `fields/${WINDOW[k]} ge '${from}'` : "";
-    return LOADING[k] ||= listItems(CONFIG.LISTS[k], filter).then(r => { D[k] = r; delete LOADING[k]; if (r.filtered) S.win[k] = from; else delete S.win[k]; },
+    return LOADING[k] ||= listWindow(k, filter).then(r => { D[k] = r; delete LOADING[k]; if (r.filtered) S.win[k] = from; else delete S.win[k]; },
       e => { delete LOADING[k]; if (soft && (isForbidden(e) || isMissingList(e))) { D[k] = []; return; } throw e; });   // soft: staff can't read every list
   }));
 }
@@ -303,7 +319,7 @@ async function needJob(no){
   })); } finally { S.jobLoading.delete(no); }
 }
 function loadAllHistory(){ S.history = "all"; Object.keys(S.win).forEach(k => delete D[k]); S.win = {}; S.jobFull.clear(); statusSyncDone = false; render(); }
-function refreshData(){ Object.keys(D).forEach(k => delete D[k]); S.win = {}; S.jobFull.clear(); statusSyncDone = false; render(); }
+function refreshData(){ Object.keys(D).forEach(k => delete D[k]); S.win = {}; S.jobFull.clear(); S.poRead.clear(); statusSyncDone = false; render(); }
 
 /* ---------------- job rules (every screen uses these) ----------------
    Technicians never edit MJE_Jobs. A job's status is worked out from what has happened:
@@ -440,7 +456,7 @@ function render(){
   if (needsJob(jn)){ const route = S.route, param = S.param; needJob(jn).then(() => { if (S.route === route && S.param === param) render(); }); }
   if (windowed() && ["dash","jobs","schedule","customers","site"].includes(S.route) && !jn)
     banner += `<div class="banner hist"><span>Showing time, materials, notes, bookings and invoices from the last ${loadDays()} days (since ${fmtDate(Object.values(S.win)[0])}) — plus bookings ahead. Opening a job shows its whole history.</span><span class="grow"></span><button class="btn" id="loadAll">Load all history</button></div>`;
-  const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, suppliers:viewSuppliers, products:viewProducts, my:viewMy }[S.route] || viewNoAccess;
+  const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, suppliers:viewSuppliers, products:viewProducts, purchases:viewPurchases, my:viewMy }[S.route] || viewNoAccess;
   $("#main").innerHTML = banner + inBranch(view);
   if ($("#backOffice")) $("#backOffice").onclick = () => { S.viewAs = ""; go("dash"); };
   if ($("#loadAll")) $("#loadAll").onclick = loadAllHistory;
@@ -452,7 +468,7 @@ function bindView(){
   document.querySelectorAll("[data-go]").forEach(b => { b.onclick = () => go(b.dataset.go);
     b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(b.dataset.go); } }; });
   if ($("#refresh")) $("#refresh").onclick = refreshData;
-  bindCustomers(); bindRoles(); bindQuotes(); bindSettings(); bindJobs(); bindSchedule(); bindMy();
+  bindCustomers(); bindRoles(); bindQuotes(); bindSettings(); bindJobs(); bindPurchases(); bindSchedule(); bindMy();
   const va = $("#viewAs"); if (va) va.onclick = () => { const n = $("#viewAsName").value; if (!n) return toast("Pick a technician first"); S.viewAs = n; go("my"); };
 }
 
@@ -1120,6 +1136,7 @@ function pickList(key){
 const NUMBERING = {
   quote: ["QuoteFormat", "Quote numbers", () => `${setting("QuotePrefix", "Q")}-{yyyy}-{n:3}`],
   job:   ["JobFormat",   "Job numbers",   () => `${setting("JobPrefix", "J")}-{yyyy}-{n:3}`],
+  po:    ["POFormat",    "Purchase order numbers", () => "{n}"],
 };
 const numFormat = kind => setting(NUMBERING[kind][0], "") || NUMBERING[kind][2]();
 const numCounter = (fmt, kind) => fmt.replace(/\{yyyy\}/g, YEAR).replace(/[-_/ .]?\{n(:\d+)?\}/g, "") || kind.toUpperCase();
@@ -1220,6 +1237,12 @@ const FORMS = {
     ["Price", [["UnitCost","Cost (ex GST)","number",{min0:1}], ["UnitSell","Sell price (ex GST) — blank = cost plus the default markup","number",{min0:1}],
       ["Supplier","Usual supplier","text",{list:() => (D.supp || []).filter(x => x.SupplierStatus !== "Inactive").map(x => x.Title)}], ["ProductStatus","Status","select",{opts:["Active","Inactive"]}] ]],
     ["Notes", [["Notes","Notes","textarea",{w:3}]]] ] },
+  po: { list:"po", name:"Purchase order", kind:"Purchasing · Purchase order", code:"Title", numbering:"po", sections:[
+    ["Supplier", [["Title","PO no.","text",{ro:1}], ["SupplierCode","Supplier","select",{req:1,w:2,opts:() => suppOpts()}], ["SupplierContact","Attention (supplier contact)","text"],
+      ["SupplierEmail","Supplier email — the PO is emailed here (separate several with ;)","text",{w:2}] ]],
+    ["Order", [["JobNo","For job no. (blank = stock / office)","text",{list:() => []}], ["Branch","Branch","select",{opts:() => branches()}], ["OrderedBy","Ordered by","select",{opts:() => staffOpts()}],
+      ["OrderDate","Order date","date",{req:1}], ["RequiredDate","Required by","date"], ["ETA","Expected delivery (ETA)","date"], ["Reference","Reference / requisition no.","text"],
+      ["DeliverTo","Deliver to (printed)","textarea",{w:3}], ["Notes","Notes to the supplier (printed)","textarea",{w:3}], ["InternalNotes","Internal notes (not printed)","textarea",{w:3}] ]] ] },
   rate: { list:"rates", name:"Labour rate", kind:"Settings · Labour rate", code:"RateCode", manualCode:true, sections:[
     ["Labour rate", [["Title","Labour type (shown on quotes), e.g. Electrician — normal time","text",{req:1,w:2}], ["RateCode","Rate code, e.g. ELEC-NORM","text",{req:1,roEdit:1}],
       ["RateEx","Rate (PGK, ex GST)","number",{req:1,min0:1}], ["RateUnit","Charged per","select",{opts:["Hour","Call-out","Fixed"],req:1}], ["MinChargeHours","Minimum charge (hours)","number",{min0:1}],
@@ -1252,6 +1275,7 @@ function formDefaults(kind){
   if (kind === "site") return { SiteStatus:"Active", Province:"National Capital District" };
   if (kind === "quote") return { Branch: brDefault(), QuoteType:"Quote", QuoteDate:TODAY, ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))), JobType:"Service / Break-fix", Terms: setting("QuoteTerms", ""), ActionedBy: S.me?.Title || "" };
   if (kind === "rate") return { RateUnit:"Hour", RateStatus:"Active" };
+  if (kind === "po") return { OrderDate:TODAY, Branch: brDefault(), OrderedBy: S.me?.Title || "", DeliverTo: poDeliverTo(brDefault()) };
   if (kind === "job") return { DateReceived:TODAY, Priority:"Normal", JobType:"Service / Break-fix", BillingBasis:"Do & charge", COD:"No", Branch: brDefault(), Team: S.me?.Team || "", RequiredChecklists: jobChecklistDefault("Service / Break-fix") };
   return { AssetStatus:"In service" };
 }
@@ -1268,10 +1292,11 @@ function openForm(kind, item, prefill = {}){
   $("#dlgBody").innerHTML = F.sections.filter(sc => item || !sc[2]?.editOnly).map(([leg, fs]) => `<fieldset><legend>${leg}</legend><div class="fg">${fs.map(f => fieldHtml(item && f[3]?.roEdit ? [f[0], f[1], f[2], { ...f[3], ro:1 }] : f, v[f[0]])).join("")}</div>
 </fieldset>`).join("")
     + (item || F.manualCode ? "" : F.codeStyle ? `<p class="count">Type the ${F.name.toLowerCase()}'s TSM / MYOB code, or leave it blank and a code is made from the name (e.g. ABLEC001).</p>`
-      : `<p class="count">The ${F.name.toLowerCase()} ${["quote","job"].includes(kind) ? "number" : "code"} is given when you save.</p>`);
+      : `<p class="count">The ${F.name.toLowerCase()} ${["quote","job","po"].includes(kind) ? "number" : "code"} is given when you save.</p>`);
   if (kind === "cont") $("[name=CustomerCode]").onchange = e => { FORM_CUST = e.target.value;
     $("[name=SiteCode]").innerHTML = `<option value=""></option>` + siteOpts(FORM_CUST).map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(""); };
   if (kind === "job" || kind === "quote") bindContactPick();
+  if (kind === "po") bindPOForm();
   if (kind === "quote") $("[name=CustomerCode]").onchange = e => {
     FORM_CUST = e.target.value; const c = D.customers.find(x => x.CustomerCode === FORM_CUST);
     $("[name=SiteCode]").innerHTML = `<option value=""></option>` + siteOpts(FORM_CUST).map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
@@ -1357,6 +1382,13 @@ async function submitForm(e){
     f.CustomerName = D.customers.find(c => c.CustomerCode === f.CustomerCode)?.Title || "";
     f.SiteName = D.sites.find(x => x.SiteCode === f.SiteCode)?.Title || "";
   }
+  if (kind === "po"){
+    if (f.JobNo && D.jobs && !jobByNo(f.JobNo) && EDIT.warned !== "job"){ EDIT.warned = "job"; return toast(`There's no job ${f.JobNo} — check the number, or click Save again to keep it`); }
+    const sp = (D.supp || []).find(x => x.SupplierCode === f.SupplierCode), jb = f.JobNo ? jobByNo(f.JobNo) : null;
+    f.SupplierName = sp?.Title || item?.SupplierName || f.SupplierCode;
+    if (!item || f.JobNo !== item.JobNo){ f.CustomerName = jb?.CustomerName || ""; f.SiteName = jb?.SiteName || ""; }
+    const bad = f.SupplierEmail.split(/[;,]/).map(x => x.trim()).filter(Boolean).find(a => !EMAIL_RE.test(a)); if (bad) return toast(`"${bad}" doesn't look like an email address`);
+  }
   if (kind === "quote"){
     if (f.ValidUntil < f.QuoteDate) return toast("Valid until can't be before the quote date");
     f.CustomerName = D.customers.find(c => c.CustomerCode === f.CustomerCode)?.Title || "";
@@ -1379,6 +1411,7 @@ async function submitForm(e){
     else if (!item && !F.manualCode) out[F.code] = await takeNumber(F.counter, F.prefix, F.width, list.map(r => r[F.code]));
     if (!item && kind === "job") out.JobStatus = "New";
     if (!item && kind === "quote"){ out.QuoteStatus = "Draft"; out.PreparedBy = S.me?.Title || account?.name || ""; }
+    if (!item && kind === "po"){ out.POStatus = "Draft"; out.SubtotalEx = 0; out.GST = 0; out.TotalInc = 0; }
     const saved = DEMO ? { ...(item || { id:"demo" + Date.now() }), ...out } : { ...(item || {}), ...(await saveListItem(CONFIG.LISTS[F.list], item?.id, out)) };
     const before = item ? { ...item } : null;
     const i = list.findIndex(r => r.id === saved.id); i >= 0 ? list.splice(i, 1, saved) : list.push(saved);
@@ -1388,6 +1421,7 @@ async function submitForm(e){
     else if (kind === "supp" || kind === "prod" || kind === "cont") render();
     else if (!item && kind === "quote") go("quotes", saved.Title);
     else if (!item && kind === "job") go("jobs", saved.Title);
+    else if (!item && kind === "po"){ S.poRead.add(saved.Title); go("purchases", saved.Title); }
     else if (!item && kind === "site" && S.route !== "customers") go("site", saved.SiteCode);
     else render();
     if (before) updateCopies(kind, before, saved);
@@ -1572,7 +1606,7 @@ function viewSuppliers(){
   const q = norm(S.sq), rows = (D.supp || []).filter(x => !q || norm([x.Title, x.SupplierCode, x.ContactName, x.Phone, x.Email, x.Branch, x.Notes].join(" ")).includes(q))
     .sort((a, b) => (a.SupplierStatus === "Inactive") - (b.SupplierStatus === "Inactive") || String(a.Title).localeCompare(String(b.Title)));
   return `<div class="crumbs"><a href="#/customers">Customers &amp; Sites</a> › Suppliers</div>
-  <div class="bar"><h2>Suppliers</h2><span class="grow"></span><a class="btn" href="#/products">Products</a><button class="btn" id="refresh">↻ Refresh</button><button class="btn primary" data-new="supp">+ New supplier</button></div>
+  <div class="bar"><h2>Suppliers</h2><span class="grow"></span><a class="btn" href="#/purchases">Purchase orders</a><a class="btn" href="#/products">Products</a><button class="btn" id="refresh">↻ Refresh</button><button class="btn primary" data-new="supp">+ New supplier</button></div>
   ${notSetUp(ROUTES.suppliers.lists)}
   <div class="bar"><input type="search" id="supq" placeholder="Search name, code, contact, branch…" value="${esc(S.sq)}"><span class="count">${rows.length} of ${(D.supp || []).length}</span></div>
   <div class="tablewrap"><table><thead><tr><th>Code</th><th>Supplier</th><th>Contact</th><th>Phone</th><th>Email</th><th>Branch</th><th>Status</th></tr></thead><tbody>
@@ -1966,11 +2000,8 @@ function openConvert(q){
     } });
 }
 
-// ---- print and PDF (same layout for both)
-function quotePrintHtml(q){
-  const ls = quoteLines(q.Title), t = totalsOf(ls), c = D.customers.find(x => x.CustomerCode === q.CustomerCode), site = D.sites.find(x => x.SiteCode === q.SiteCode);
-  const co = setting("CompanyName", BRAND.COMPANY), det = setting("CompanyDetails", "");
-  return `<div class="pq"><style>
+// ---- print and PDF (same layout for both; purchase orders use it too)
+const PRINT_CSS = `
   .pq{font:12px/1.45 "Segoe UI",Arial,sans-serif;color:#111;background:#fff;padding:6px 4px;width:100%}
   .pq-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:3px solid #f15838;padding-bottom:10px;margin-bottom:14px}
   .pq-head img{height:76px;width:auto}
@@ -1989,7 +2020,11 @@ function quotePrintHtml(q){
   .pq-tot .g{border-top:2px solid #231f20;font-weight:700;font-size:14px}
   .pq-terms{margin-top:16px;font-size:10.5px;color:#333;page-break-inside:avoid}
   .pq-foot{margin-top:14px;font-size:10px;color:#777;text-align:center}
-  </style>
+`;
+function quotePrintHtml(q){
+  const ls = quoteLines(q.Title), t = totalsOf(ls), c = D.customers.find(x => x.CustomerCode === q.CustomerCode), site = D.sites.find(x => x.SiteCode === q.SiteCode);
+  const co = setting("CompanyName", BRAND.COMPANY), det = setting("CompanyDetails", "");
+  return `<div class="pq"><style>${PRINT_CSS}</style>
   <div class="pq-head">${mjeLogoFull()}<div class="pq-co"><b>${esc(co)}</b>${det ? "<br>" + lines(det) : ""}</div></div>
   <h1>QUOTATION</h1>
   <div class="pq-meta">
@@ -2026,8 +2061,8 @@ async function pdfBase64(html, name){
 }
 
 // ---- email (from the shared accounts mailbox when it's set in Settings)
-async function sendMail(message){
-  const box = setting("AccountsMailbox", "").trim(), scope = box ? "Mail.Send.Shared" : "Mail.Send";
+async function sendMail(message, from){
+  const box = (from === undefined ? setting("AccountsMailbox", "") : from).trim(), scope = box ? "Mail.Send.Shared" : "Mail.Send";
   let tk; try { tk = (await msalApp.acquireTokenSilent({ scopes:[scope], account })).accessToken; } catch(e){ tk = (await msalApp.acquireTokenPopup({ scopes:[scope], account })).accessToken; }
   const r = await fetch(`https://graph.microsoft.com/v1.0/${box ? "users/" + encodeURIComponent(box) : "me"}/sendMail`,
     { method:"POST", headers:{ Authorization:"Bearer " + tk, "Content-Type":"application/json" }, body: JSON.stringify({ message, saveToSentItems:true }) });
@@ -2062,6 +2097,348 @@ function openEmail(q){
 }
 
 /* =====================================================================
+   PURCHASING — purchase orders to suppliers (MJE_PurchaseOrders + MJE_PurchaseOrderLines)
+   Draft → Sent → Part received / Received → Closed (or Cancelled). Numbers carry on from TSM's (30773…).
+   A PO can be for a job or for stock. Receiving goods can add the items to the job's materials
+   at cost plus markup, so parts bought for a job are charged on its invoice.
+   ===================================================================== */
+const PO_OPEN = ["Draft","Sent","Part received"], PO_WAITING = ["Sent","Part received"];
+const POPILL = { Draft:"p-grey", Sent:"p-info", "Part received":"p-warn", Received:"p-ok", Closed:"p-grey", Cancelled:"p-grey" };
+const poStatus = p => p.POStatus || "Draft";
+const poLate = p => PO_WAITING.includes(poStatus(p)) && p.ETA && p.ETA < TODAY;
+const poPill = p => `<span class="pill ${POPILL[poStatus(p)] || "p-grey"}">${esc(poStatus(p))}</span>${poLate(p) ? ` <span class="pill p-crit">overdue</span>` : ""}`;
+const poByNo = no => (D.po || []).find(p => p.Title === no);
+const poLines = no => (D.poline || []).filter(l => l.Title === no).sort((a, b) => num(a.LineNo) - num(b.LineNo));
+const poLineAmt = l => r2(num(l.Qty) * num(l.UnitCost));
+function poTotals(ls){
+  let sub = 0, gst = 0;
+  ls.forEach(l => { const t = poLineAmt(l); sub += t; if ((l.TaxCode || "GST") === "GST") gst += t * gstPct() / 100; });
+  sub = r2(sub); gst = r2(gst); return { sub, gst, inc: r2(sub + gst) };
+}
+const suppOpts = () => (D.supp || []).filter(x => x.SupplierStatus !== "Inactive").sort((a, b) => String(a.Title).localeCompare(String(b.Title))).map(x => [x.SupplierCode, `${x.Title} (${x.SupplierCode})`]);
+const brKey = b => "PODeliverTo_" + String(b || "").replace(/[^A-Za-z0-9]/g, "");
+const poDeliverTo = b => setting(brKey(b), "") || setting("PODeliverTo", "") || [setting("CompanyName", BRAND.COMPANY), setting("CompanyDetails", "").split(/\r?\n/)[0]].filter(Boolean).join("\n");
+// PO lines are read per purchase order (there are tens of thousands); a PO's lines are read when it's opened
+async function needPOLines(no){
+  if (!D.poline) D.poline = [];
+  if (DEMO || !no || S.poRead.has(no) || !S.have.has(CONFIG.LISTS.poline)) return;
+  S.poRead.add(no);
+  try { const rows = await listItems(CONFIG.LISTS.poline, `fields/Title eq '${String(no).replace(/'/g, "''")}'`);
+    const mine = rows.filter(r => r.Title === no), have = new Set(D.poline.map(r => r.id)); mine.forEach(r => { if (!have.has(r.id)) D.poline.push(r); }); }
+  catch(e){ S.poRead.delete(no); throw e; }
+}
+// The PO form: picking a supplier fills its email; picking a job fills the branch; the branch sets the delivery address
+function bindPOForm(){
+  const dl = $("#dl_JobNo");
+  if (dl && D.jobs){ const f = jobFacts(); dl.innerHTML = D.jobs.filter(j => !CLOSED.includes(jobState(j, f))).sort((a, b) => String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true })).slice(0, 800)
+    .map(j => `<option value="${esc(j.Title)}" label="${esc([j.CustomerName, j.SiteName].filter(Boolean).join(" · "))}">`).join(""); }
+  const sup = $("[name=SupplierCode]"), em = $("[name=SupplierEmail]"), ct = $("[name=SupplierContact]");
+  let auto = { em: em.value, ct: ct.value };
+  sup.onchange = () => { const x = (D.supp || []).find(r => r.SupplierCode === sup.value); if (!x) return;
+    if (!em.value || em.value === auto.em) em.value = auto.em = x.Email || "";
+    if (!ct.value || ct.value === auto.ct) ct.value = auto.ct = x.ContactName || ""; };
+  const br = $("[name=Branch]"), dt = $("[name=DeliverTo]"); let autoD = dt.value;
+  br.onchange = () => { if (!dt.value || dt.value === autoD) dt.value = autoD = poDeliverTo(br.value); };
+  $("[name=JobNo]").onchange = e => { const j = jobByNo(e.target.value.trim()); if (j?.Branch && br.value !== j.Branch){ br.value = j.Branch; br.onchange(); } };
+}
+
+/* ---------------- list ---------------- */
+S.pof = { q:"", status:"open", supp:"" };
+S.pe = {};                               // unsaved line edits, per PO number
+const PO_FILTERS = [["open","Open"],["Draft","Draft"],["Sent","Sent"],["Part received","Part received"],["late","Overdue"],["Received","Received"],["Closed","Closed"],["Cancelled","Cancelled"],["all","All"]];
+window.addEventListener("beforeunload", e => { if (Object.values(S.pe).some(x => x.dirty)) { e.preventDefault(); e.returnValue = ""; } });
+function viewPurchases(){
+  if (S.param) return viewPO(S.param);
+  const f = S.pof, q = norm(f.q), all = D.po || [];
+  const match = p => { const st = poStatus(p); return f.status === "all" || (f.status === "open" ? PO_OPEN.includes(st) : f.status === "late" ? poLate(p) : st === f.status); };
+  const rows = all.filter(p => match(p) && (!f.supp || p.SupplierCode === f.supp) && (!q || norm([p.Title, p.SupplierName, p.SupplierCode, p.JobNo, p.CustomerName, p.SiteName, p.Reference, p.OrderedBy, p.DeliveryRef, p.Notes].join(" ")).includes(q)))
+    .sort((a, b) => String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true }));
+  const show = rows.slice(0, 300), sum = a => a.reduce((t, p) => t + num(p.TotalInc), 0);
+  const drafts = all.filter(p => poStatus(p) === "Draft"), waiting = all.filter(p => PO_WAITING.includes(poStatus(p))), late = all.filter(poLate);
+  const month = TODAY.slice(0, 7), thisMonth = all.filter(p => (p.OrderDate || "").startsWith(month) && poStatus(p) !== "Cancelled");
+  const suppIn = [...new Map(all.filter(p => p.SupplierCode).map(p => [p.SupplierCode, p.SupplierName || p.SupplierCode])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const tile = (st, label, v, sub, alert) => `<div class="card kpi k-po ${alert ? "alert" : ""}" role="button" tabindex="0" data-pof="${st}"><div class="l">${label}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
+  return `
+  <div class="bar"><h2>Purchasing</h2><span class="grow"></span><a class="btn" href="#/suppliers">Suppliers</a><a class="btn" href="#/products">Products</a><button class="btn" id="refresh">↻ Refresh</button><button class="btn primary" data-newpo="">+ New purchase order</button></div>
+  ${notSetUp(ROUTES.purchases.lists)}
+  <div class="grid kpis">
+    ${tile("Draft", "Drafts", drafts.length, `${k2(sum(drafts))} inc GST · not sent yet`)}
+    ${tile("open", "Awaiting delivery", waiting.length, `${k2(sum(waiting))} inc GST`)}
+    ${tile("late", "Overdue", late.length, "past the expected date", late.length)}
+    ${tile("all", "Ordered this month", k2(sum(thisMonth)), `${thisMonth.length} PO${thisMonth.length === 1 ? "" : "s"} · inc GST`)}
+  </div>
+  <div class="bar"><input type="search" id="poq" placeholder="Search PO no., supplier, job, customer, reference…" value="${esc(f.q)}">
+    <select class="f" id="posupp" aria-label="Supplier"><option value="">All suppliers</option>${suppIn.map(([c, n]) => `<option value="${esc(c)}" ${c === f.supp ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+    <span class="count">${rows.length} of ${all.length}${rows.length > show.length ? ` — showing the newest ${show.length}, search to narrow` : ""}</span></div>
+  <div class="bar chips" style="display:flex;flex-wrap:wrap">${PO_FILTERS.map(([v, l]) => `<button class="chip ${f.status === v ? "on" : ""}" data-pof="${v}">${l}</button>`).join("")}</div>
+  ${S.win.po ? `<p class="count">Showing open purchase orders and those from the last ${loadDays()} days (since ${fmtDate(S.win.po)}). <button class="btn sm" id="loadAll">Load all history</button></p>` : ""}
+  <div class="tablewrap"><table><thead><tr><th>PO</th><th>Date</th><th>Supplier</th><th>Job · customer</th><th>Reference</th><th>Ordered by</th><th>ETA</th><th>Total inc GST</th><th>Status</th></tr></thead><tbody>
+  ${show.map(p => `<tr data-go="purchases/${encodeURIComponent(p.Title)}" tabindex="0"><td class="mono"><b>${esc(p.Title)}</b></td><td class="mono">${fmtDate(p.OrderDate)}</td>
+    <td><b>${esc(p.SupplierName || p.SupplierCode || "")}</b></td>
+    <td>${p.JobNo ? `<span class="mono">${esc(p.JobNo)}</span>${p.CustomerName ? `<br><span class="count">${esc(p.CustomerName)}</span>` : ""}` : `<span class="count">stock / office</span>`}</td>
+    <td>${esc(p.Reference || "")}</td><td>${esc(p.OrderedBy || "")}</td><td class="mono" ${poLate(p) ? 'style="color:var(--crit);font-weight:600"' : ""}>${PO_WAITING.includes(poStatus(p)) ? fmtDate(p.ETA) : ""}</td>
+    <td class="mono">${p.TotalInc != null && p.TotalInc !== "" ? k2(p.TotalInc) : ""}</td><td>${poPill(p)}</td></tr>`).join("")}
+  </tbody></table>${rows.length ? "" : `<div class="empty">${all.length ? "No purchase orders match" : "No purchase orders yet — click <b>+ New purchase order</b>"}</div>`}</div>`;
+}
+
+/* ---------------- one PO ---------------- */
+function viewPO(no){
+  const p = poByNo(no); if (!p) return notFound("Purchase order", no, "#/purchases", "Purchasing");
+  if (!DEMO && !S.poRead.has(no)){ needPOLines(no).then(() => { if (S.route === "purchases" && S.param === no) render(); }).catch(e => toast("Couldn't read the PO lines: " + e.message)); return `<div class="empty">Loading ${esc(no)}…</div>`; }
+  const st = poStatus(p), draft = st === "Draft", PE = draft ? (S.pe[no] ||= { lines: poLines(no).map(l => ({ ...l })), removed: [], dirty: false }) : null;
+  const ls = draft ? PE.lines : poLines(no), sp = (D.supp || []).find(x => x.SupplierCode === p.SupplierCode), j = p.JobNo ? jobByNo(p.JobNo) : null;
+  const got = ls.reduce((t, l) => t + num(l.ReceivedQty), 0);
+  const b = (act, label, primary) => `<button class="btn ${primary ? "primary" : ""}" data-pact="${act}">${label}</button>`;
+  const actions = draft ? [b("edit","Edit details"), b("print","Print / PDF"), b("cancel","Cancel"), b("email","Email to supplier"), b("sent","Mark as sent", 1)]
+    : PO_WAITING.includes(st) ? [b("edit","Edit details"), b("print","Print / PDF"), b("email","Email again"), ...(got ? [] : [b("redraft","Back to draft"), b("cancel","Cancel")]), b("close","Close"), b("receive","Receive goods", 1)]
+    : st === "Received" ? [b("print","Print / PDF"), b("close","Close", 1)]
+    : [b("print","Print / PDF"), b("reopen","Reopen")];
+  return `
+  <div class="crumbs"><a href="#/purchases">Purchasing</a> › PO ${esc(p.Title)}</div>
+  <div class="bar"><h2>PO ${esc(p.Title)}</h2>${poPill(p)}<span class="count">${esc(p.SupplierName || "")}</span><span class="grow"></span>${actions.join("")}</div>
+  ${draft && PE.dirty ? `<div class="banner">These lines have unsaved changes — click <b>Save lines</b> below.</div>` : ""}
+  <div class="grid two">
+    <div class="card"><h3>Order</h3><dl class="kv">
+      <dt>Supplier</dt><dd>${esc(p.SupplierName || p.SupplierCode || "")}${sp?.Phone ? ` · <a href="tel:${esc(sp.Phone)}">${esc(sp.Phone)}</a>` : ""}</dd>
+      <dt>Attention</dt><dd>${esc(p.SupplierContact || "—")}${p.SupplierEmail ? ` · ${p.SupplierEmail.split(/[;,]/).map(a => a.trim()).filter(Boolean).map(a => `<a href="mailto:${esc(a)}">${esc(a)}</a>`).join(", ")}` : ` <span class="pill p-warn">no email</span>`}</dd>
+      <dt>For</dt><dd>${p.JobNo ? `job <a href="#/jobs/${encodeURIComponent(p.JobNo)}/purchases">${esc(p.JobNo)}</a>${p.CustomerName ? " · " + esc(p.CustomerName) : ""}${p.SiteName ? " · " + esc(p.SiteName) : ""}${p.JobNo && D.jobs && !j ? ` <span class="count">(job not loaded)</span>` : ""}` : "Stock / office"}</dd>
+      <dt>Order date</dt><dd>${fmtDate(p.OrderDate)}</dd>${p.RequiredDate ? `<dt>Required by</dt><dd>${fmtDate(p.RequiredDate)}</dd>` : ""}
+      <dt>Expected</dt><dd>${fmtDate(p.ETA) || "—"}${poLate(p) ? ` <span class="pill p-crit">overdue</span>` : ""}</dd>
+      ${p.Reference ? `<dt>Reference</dt><dd>${esc(p.Reference)}</dd>` : ""}<dt>Ordered by</dt><dd>${esc(p.OrderedBy || "—")}${p.Branch ? " · " + esc(p.Branch) : ""}</dd>
+      ${p.SentDate ? `<dt>Sent</dt><dd>${fmtDate(p.SentDate)}</dd>` : ""}${p.ReceivedDate ? `<dt>Received</dt><dd>${fmtDate(p.ReceivedDate)}</dd>` : ""}${p.DeliveryRef ? `<dt>Delivery / invoice</dt><dd>${esc(p.DeliveryRef)}</dd>` : ""}</dl></div>
+    <div class="card"><h3>Deliver to</h3><div>${lines(p.DeliverTo) || `<span class="count">not set</span>`}</div>
+      ${p.Notes ? `<h3 style="margin-top:16px">Notes to the supplier</h3><div>${lines(p.Notes)}</div>` : ""}
+      ${p.InternalNotes ? `<h3 style="margin-top:16px">Internal notes</h3><div class="count">${lines(p.InternalNotes)}</div>` : ""}</div>
+  </div>
+  <div class="bar" style="margin-top:22px"><h2>Items</h2><span class="grow"></span>
+    ${draft ? `<button class="btn" data-addpl="1">+ Add item</button>` : `<span class="count">Items are locked once the PO is sent${PO_WAITING.includes(st) && !got ? " — use Back to draft to change them" : ""}.</span>`}</div>
+  ${draft ? `<div class="tablewrap"><table class="qlines" id="plines"><thead><tr><th>Item code</th><th>Description</th><th>Qty</th><th>Unit</th><th>Unit cost ex GST</th><th>Tax</th><th>Amount</th><th></th></tr></thead>
+      <tbody>${poLinesBody(ls)}</tbody></table></div>
+      <div id="ptot">${poTotalsHtml(ls)}</div>
+      <div class="bar" style="justify-content:flex-end;margin-top:12px"><span class="count" id="pDirty">${PE.dirty ? "Unsaved changes" : ""}</span><button class="btn" id="pDiscard" ${PE.dirty ? "" : "disabled"}>Discard changes</button><button class="btn primary" id="pSave" ${PE.dirty ? "" : "disabled"}>Save lines</button></div>`
+    : `<div class="tablewrap"><table><thead><tr><th>Item code</th><th>Description</th><th>Qty</th><th>Unit</th><th>Unit cost ex GST</th><th>Tax</th><th>Amount</th><th>Received</th><th>On job</th></tr></thead><tbody>
+      ${ls.map(l => `<tr><td class="mono">${esc(l.ProductCode || "")}</td><td>${lines(l.Description)}</td><td class="mono">${esc(l.Qty ?? "")}</td><td>${esc(l.Unit || "")}</td><td class="mono">${k2(l.UnitCost)}</td>
+        <td>${esc(l.TaxCode || "GST")}</td><td class="mono">${k2(poLineAmt(l))}</td>
+        <td>${num(l.ReceivedQty) >= num(l.Qty) && num(l.Qty) > 0 ? `<span class="pill p-ok">${esc(l.ReceivedQty)}</span>` : num(l.ReceivedQty) > 0 ? `<span class="pill p-warn">${esc(l.ReceivedQty)} of ${esc(l.Qty)}</span>` : `<span class="count">—</span>`}</td>
+        <td>${l.JobNo ? `<span class="mono">${esc(l.JobNo)}</span>${l.AddedToJob === "Yes" ? ` <span class="pill p-ok" title="Added to the job's materials">✓</span>` : ""}` : ""}</td></tr>`).join("")}
+      </tbody></table>${ls.length ? "" : `<div class="empty">No items</div>`}</div>${poTotalsHtml(ls)}`}`;
+}
+function poLineRow(l, i){
+  return `<tr data-i="${i}">
+    <td><input data-f="ProductCode" value="${esc(l.ProductCode || "")}" class="unit" style="width:110px" aria-label="Item code"></td>
+    <td><input data-f="Description" value="${esc(l.Description || "")}" placeholder="Type to search the products, or a one-off item"${D.prod?.length ? ` list="${productList()}" autocomplete="off"` : ""}></td>
+    <td><input data-f="Qty" type="number" step="any" min="0" value="${esc(l.Qty ?? "")}" class="num" aria-label="Quantity"></td>
+    <td><input data-f="Unit" value="${esc(l.Unit || "")}" class="unit" aria-label="Unit"></td>
+    <td><input data-f="UnitCost" type="number" step="any" min="0" value="${esc(l.UnitCost ?? "")}" class="num" aria-label="Unit cost ex GST"></td>
+    <td><select data-f="TaxCode" aria-label="Tax">${["GST","FRE"].map(t => `<option ${t === (l.TaxCode || "GST") ? "selected" : ""}>${t}</option>`).join("")}</select></td>
+    <td class="mono lt">${k2(poLineAmt(l))}</td><td>${rowBtns(i)}</td></tr>`;
+}
+const poLinesBody = ls => ls.length ? ls.map(poLineRow).join("") : `<tr class="emptyrow"><td colspan="8"><div class="empty">No items yet — click <b>+ Add item</b></div></td></tr>`;
+function poTotalsHtml(ls){
+  const t = poTotals(ls);
+  return `<div class="qtotals"><div><span>Subtotal (ex GST)</span><span class="mono">${k2(t.sub)}</span></div><div><span>GST ${gstPct()}%</span><span class="mono">${k2(t.gst)}</span></div>
+    <div class="g"><span>Total (inc GST)</span><span class="mono">${k2(t.inc)}</span></div></div>`;
+}
+function poRefresh(no){
+  const PE = S.pe[no], tb = $("#plines tbody"); if (!tb) return render();
+  tb.innerHTML = poLinesBody(PE.lines); $("#ptot").innerHTML = poTotalsHtml(PE.lines); poDirty(no);
+}
+function poDirty(no){
+  S.pe[no].dirty = true;
+  if ($("#pDirty")) { $("#pDirty").textContent = "Unsaved changes"; $("#pSave").disabled = false; $("#pDiscard").disabled = false; }
+}
+function bindPurchases(){
+  document.querySelectorAll("[data-newpo]").forEach(b => b.onclick = () => openForm("po", null, b.dataset.newpo ? poFromJob(b.dataset.newpo) : {}));
+  if (S.route !== "purchases") return;
+  document.querySelectorAll("[data-pof]").forEach(b => { const fn = () => { S.pof.status = b.dataset.pof; render(); }; b.onclick = fn; b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } }; });
+  const pq = $("#poq"); if (pq) pq.oninput = () => { S.pof.q = pq.value; const pos = pq.selectionStart; render(); const n = $("#poq"); n.focus(); n.setSelectionRange(pos, pos); };
+  if ($("#posupp")) $("#posupp").onchange = e => { S.pof.supp = e.target.value; render(); };
+  const p = poByNo(S.param); if (!p) return;
+  const no = p.Title, PE = S.pe[no];
+  document.querySelectorAll("[data-pact]").forEach(b => b.onclick = () => poAction(p, b.dataset.pact));
+  const add = $("[data-addpl]"); if (add) add.onclick = () => { PE.lines.push({ Qty:1, Unit:"each", TaxCode:"GST", JobNo: p.JobNo || "", _new:true }); poRefresh(no); $("#plines tbody tr:last-child [data-f=Description]")?.focus(); };
+  const tbl = $("#plines"); if (!tbl) return;
+  tbl.oninput = e => {
+    const el = e.target, tr = el.closest("tr[data-i]"), k = el.dataset.f; if (!tr || !k) return;
+    const l = PE.lines[+tr.dataset.i]; l[k] = el.value; poDirty(no);
+    if (k === "Description"){ const pr = findProduct(el.value); if (pr){ l.Description = pr.Title; l.ProductCode = pr.ProductCode || l.ProductCode; l.Unit = pr.Unit || l.Unit || "each";
+      if (pr.UnitCost !== "" && pr.UnitCost != null) l.UnitCost = num(pr.UnitCost); return poRefresh(no); } }
+    const lt = tr.querySelector(".lt"); if (lt) lt.textContent = k2(poLineAmt(l));
+    $("#ptot").innerHTML = poTotalsHtml(PE.lines);
+  };
+  tbl.onclick = e => {
+    const rm = e.target.closest("[data-rm]"), mv = e.target.closest("[data-mv]");
+    if (rm){ const [l] = PE.lines.splice(+rm.dataset.rm, 1); if (l.id) PE.removed.push(l.id); poRefresh(no); }
+    if (mv){ const [i, d] = mv.dataset.mv.split("|").map(Number), k = i + d; if (k < 0 || k >= PE.lines.length) return; [PE.lines[i], PE.lines[k]] = [PE.lines[k], PE.lines[i]]; poRefresh(no); }
+  };
+  $("#pDiscard").onclick = () => { delete S.pe[no]; render(); toast("Changes discarded"); };
+  $("#pSave").onclick = () => savePOLines(p);
+}
+const poFromJob = no => { const j = jobByNo(no); return { JobNo:no, ...(j?.Branch ? { Branch:j.Branch, DeliverTo: poDeliverTo(j.Branch) } : {}) }; };
+// Save the item editor (same way as quote lines): changed lines updated, new ones added, removed ones deleted, totals stored on the PO
+async function savePOLines(p){
+  const PE = S.pe[p.Title];
+  const bad = PE.lines.findIndex(l => !String(l.Description || "").trim() || l.Qty === "" || l.Qty == null || l.UnitCost === "" || l.UnitCost == null);
+  if (bad >= 0) return toast(`Item ${bad + 1} needs a description, quantity and unit cost`);
+  const LIST = CONFIG.LISTS.poline;
+  const fieldsOf = (l, i) => ({ Title:p.Title, LineNo:i + 1, ProductCode: String(l.ProductCode || "").trim() || null, Description: String(l.Description || "").trim(), Qty: num(l.Qty), Unit: l.Unit || null,
+    UnitCost: num(l.UnitCost), TaxCode: l.TaxCode || "GST", LineTotalEx: poLineAmt(l), JobNo: l.JobNo || p.JobNo || null });
+  const same = (a, b) => (a ?? "") === (b ?? "") || (typeof b === "number" && num(a) === b && a !== "" && a != null);
+  $("#pSave").disabled = true;
+  try {
+    if (!D.poline) D.poline = [];
+    while (PE.removed.length){ const id = PE.removed[0]; if (!DEMO) await graph(`/sites/${siteId}/lists/${LIST}/items/${id}`, { method:"DELETE" }); PE.removed.shift(); D.poline = D.poline.filter(x => x.id !== id); }
+    for (const [i, l] of PE.lines.entries()){
+      const f = fieldsOf(l, i), orig = l.id ? D.poline.find(x => x.id === l.id) : null;
+      if (orig && Object.keys(f).every(k => same(orig[k], f[k]))) continue;
+      const saved = DEMO ? { id: l.id || "demo" + Date.now() + i, ...f } : await saveListItem(LIST, l.id || null, f);
+      const row = { ...(orig || {}), ...f, id: l.id || saved.id };
+      l.id = row.id; delete l._new;
+      D.poline = D.poline.filter(x => x.id !== row.id); D.poline.push(row);
+    }
+    const t = poTotals(PE.lines), tf = { SubtotalEx:t.sub, GST:t.gst, TotalInc:t.inc };
+    if (!DEMO) await saveListItem(CONFIG.LISTS.po, p.id, tf);
+    Object.assign(p, tf); delete S.pe[p.Title]; render(); toast(`Saved PO ${p.Title} — ${k2(t.inc)} inc GST`);
+  } catch(e){ console.error(e); toast((isForbidden(e) ? PO_NO_PERMISSION : "Save stopped: " + e.message) + " — click Save lines again to finish."); $("#pSave").disabled = false; }
+}
+const PO_NO_PERMISSION = `You don't have permission to change purchase orders — they're for the ${BRAND.SHORT} office.`;
+async function setPO(p, f, msg){
+  try { if (!DEMO) await saveListItem(CONFIG.LISTS.po, p.id, f); Object.assign(p, f); render(); toast(msg); return true; }
+  catch(e){ toast(isForbidden(e) ? PO_NO_PERMISSION : "Couldn't save: " + e.message); return false; }
+}
+function poReady(p){
+  if (S.pe[p.Title]?.dirty){ toast("Save the items first"); return false; }
+  if (!poLines(p.Title).length){ toast("Add at least one item first"); return false; }
+  return true;
+}
+function poAction(p, act){
+  const no = p.Title;
+  if (act === "edit") return openForm("po", p);
+  if (act === "print"){ if (S.pe[no]?.dirty) return toast("Save the items first"); return printDoc(poPrintHtml(p), "PO " + no); }
+  if (act === "email"){ if (poReady(p)) openPOEmail(p); return; }
+  if (act === "sent"){ if (poReady(p)) setPO(p, { POStatus:"Sent", SentDate:TODAY }, `PO ${no} marked as sent`); return; }
+  if (act === "redraft") return setPO(p, { POStatus:"Draft" }, `PO ${no} is back in draft`);
+  if (act === "receive") return openReceive(p);
+  if (act === "reopen"){ const ls = poLines(no), all = ls.length && ls.every(l => num(l.ReceivedQty) >= num(l.Qty));
+    return setPO(p, { POStatus: p.POStatus === "Cancelled" ? "Draft" : all ? "Received" : ls.some(l => num(l.ReceivedQty) > 0) ? "Part received" : "Sent" }, `PO ${no} reopened`); }
+  if (act === "close") return openDialog({ cls:"f-po", kind:"Purchasing · Close", title:`Close PO ${no}`, save:"Close the PO",
+    body:`<fieldset><legend>Close</legend><div class="fg"><label class="fld w3"><span>Note (optional)</span><input name="note" placeholder="${p.POStatus === "Received" ? "e.g. supplier invoice checked" : "e.g. balance not needed, supplier can't supply the rest"}"></label></div></fieldset>
+      <p class="count">A closed PO no longer shows as awaiting delivery.${PO_WAITING.includes(poStatus(p)) ? " Anything not received yet won't be chased." : ""}</p>`,
+    onSubmit: async () => { const note = val("note") ? `${fmtDate(TODAY)} — closed by ${me()}: ${val("note")}` : ""; $("#dlg").close();
+      await setPO(p, { POStatus:"Closed", ...(note ? { InternalNotes: p.InternalNotes ? p.InternalNotes + "\n" + note : note } : {}) }, `PO ${no} closed`); } });
+  if (act === "cancel") return openDialog({ cls:"f-po", kind:"Purchasing · Cancel", title:`Cancel PO ${no}`, save:"Cancel the PO",
+    body:`<fieldset><legend>Why is it cancelled?</legend><div class="fg"><label class="fld w3"><span>Reason</span><input name="reason" placeholder="e.g. ordered elsewhere, raised in error"></label></div></fieldset>
+      ${p.SentDate ? `<p class="count">This PO was sent on ${fmtDate(p.SentDate)} — let the supplier know it's cancelled.</p>` : ""}`,
+    onSubmit: async () => { const note = `${fmtDate(TODAY)} — cancelled by ${me()}${val("reason") ? ": " + val("reason") : ""}`; $("#dlg").close();
+      await setPO(p, { POStatus:"Cancelled", InternalNotes: p.InternalNotes ? p.InternalNotes + "\n" + note : note }, `PO ${no} cancelled`); } });
+}
+
+/* ---------------- receiving goods ----------------
+   Enter what arrived. Lines for a job can go straight onto the job's materials (cost plus markup, charged on the invoice).
+   A PO with everything received becomes Received; otherwise Part received.                                                */
+async function addMaterialRow(f){
+  if (D.mat) return saveRow("mat", null, f);
+  if (!DEMO) await saveListItem(CONFIG.LISTS.mat, null, f);
+}
+// "Added to job" with nothing received yet = handled elsewhere (POs imported from TSM, whose materials came across with the jobs)
+const poHandled = l => l.AddedToJob === "Yes" && !(num(l.ReceivedQty) > 0);
+function openReceive(p){
+  const ls = poLines(p.Title); if (!ls.length) return toast("This PO has no items");
+  const left = l => Math.max(0, r2(num(l.Qty) - num(l.ReceivedQty)));
+  openDialog({ cls:"f-po", kind:"Purchasing · Receive goods", title:`Receive goods on PO ${p.Title}`, save:"Save receipt",
+    body:`<fieldset><legend>Delivery</legend><div class="fg">
+      <label class="fld"><span class="req">Date received</span><input type="date" name="rdate" required value="${TODAY}"></label>
+      <label class="fld"><span>Delivery docket / supplier invoice no.</span><input name="dref"></label>
+      <label class="fld"><span>Markup % on items added to jobs</span><input type="number" step="any" min="0" name="mk" value="${esc(markupPct())}"></label></div></fieldset>
+      <fieldset><legend>Items</legend><div class="tablewrap"><table class="rcv"><thead><tr><th>Item</th><th>Ordered</th><th>Received before</th><th>Received now</th><th>Add to job materials</th></tr></thead><tbody>
+      ${ls.map((l, i) => `<tr><td>${esc(l.Description)}${l.ProductCode ? ` <span class="count">${esc(l.ProductCode)}</span>` : ""}</td><td class="mono">${esc(l.Qty)} ${esc(l.Unit || "")}</td><td class="mono">${num(l.ReceivedQty) || "—"}</td>
+        <td><input type="number" step="any" min="0" class="num" name="rq_${i}" value="${left(l) || ""}" aria-label="Received now"></td>
+        <td>${l.JobNo ? `<label><input type="checkbox" name="aj_${i}" ${poHandled(l) ? "" : "checked"}> job ${esc(l.JobNo)}</label>${poHandled(l) ? ` <span class="count">already on the job</span>` : ""}` : `<span class="count">stock</span>`}</td></tr>`).join("")}
+      </tbody></table></div><p class="count">Ticked items are added to the job's materials at cost plus the markup, ready to charge on the invoice. Leave a quantity blank for items not delivered.</p></fieldset>`,
+    onSubmit: async () => {
+      const when = val("rdate"), mk = num(val("mk")), todo = ls.map((l, i) => ({ l, q: num(val("rq_" + i)), add: !!$(`#dlgBody [name="aj_${i}"]`)?.checked })).filter(x => x.q > 0);
+      if (!todo.length) return toast("Enter the quantity received on at least one item");
+      let added = 0;
+      for (const { l, q, add } of todo){
+        const f = { ReceivedQty: r2(num(l.ReceivedQty) + q) };
+        if (add && l.JobNo){
+          await addMaterialRow({ Title:l.JobNo, ItemCode: l.ProductCode || "", Description: l.Description, Qty:q, Unit: l.Unit || "each", UnitCost: num(l.UnitCost), MarkupPct: mk,
+            UnitSell: r2(num(l.UnitCost) * (1 + mk / 100)), Billable:"Yes", MaterialSource:"Purchased", Supplier: p.SupplierName || "", AddedBy: me(), EntryDate: when,
+            ClientRef: `PO${p.Title}-L${l.LineNo || 0}-${Date.now().toString(36)}` });
+          f.AddedToJob = "Yes"; added++;
+        }
+        if (!DEMO) await saveListItem(CONFIG.LISTS.poline, l.id, f);
+        Object.assign(l, f);
+      }
+      const all = ls.every(l => num(l.ReceivedQty) >= num(l.Qty)), ref = val("dref");
+      const pf = { POStatus: all ? "Received" : "Part received", ...(all ? { ReceivedDate: when } : {}), ...(ref ? { DeliveryRef: p.DeliveryRef ? p.DeliveryRef + "; " + ref : ref } : {}) };
+      $("#dlg").close();
+      await setPO(p, pf, `PO ${p.Title}: ${todo.length} item${todo.length === 1 ? "" : "s"} received${added ? `, ${added} added to job materials` : ""}${all ? " — all received" : ""}`);
+      const jobs = [...new Set(todo.filter(x => x.l.JobNo).map(x => x.l.JobNo))];
+      for (const jn of jobs){ const j = jobByNo(jn); if (j && !CLOSED.includes(j.JobStatus)) await addUpdate(j, `Goods received on PO ${p.Title} from ${p.SupplierName || "the supplier"}${all ? "" : " (part delivery)"}`, true); }
+    } });
+}
+
+/* ---------------- print and email ---------------- */
+function poPrintHtml(p){
+  const ls = poLines(p.Title), t = poTotals(ls), sp = (D.supp || []).find(x => x.SupplierCode === p.SupplierCode);
+  const co = setting("CompanyName", BRAND.COMPANY), det = setting("CompanyDetails", ""), terms = setting("POTerms", "");
+  return `<div class="pq"><style>${PRINT_CSS}</style>
+  <div class="pq-head">${mjeLogoFull()}<div class="pq-co"><b>${esc(co)}</b>${det ? "<br>" + lines(det) : ""}</div></div>
+  <h1>PURCHASE ORDER</h1>
+  <div class="pq-meta">
+    <div class="pq-box"><h4>To</h4><b>${esc(p.SupplierName || sp?.Title || "")}</b>${sp?.Address ? "<br>" + lines(sp.Address) : ""}${p.SupplierContact ? `<br>Attention: ${esc(p.SupplierContact)}` : ""}${p.SupplierEmail ? `<br>${esc(p.SupplierEmail)}` : ""}</div>
+    <div class="pq-box"><h4>Details</h4>PO no.: <b>${esc(p.Title)}</b><br>Date: ${fmtDate(p.OrderDate)}${p.RequiredDate ? `<br>Required by: ${fmtDate(p.RequiredDate)}` : ""}${p.JobNo ? `<br>Our job no.: ${esc(p.JobNo)}` : ""}${p.Reference ? `<br>Reference: ${esc(p.Reference)}` : ""}${p.OrderedBy ? `<br>Ordered by: ${esc(p.OrderedBy)}` : ""}</div>
+  </div>
+  ${p.DeliverTo ? `<div class="pq-box" style="margin-bottom:12px"><h4>Deliver to</h4>${lines(p.DeliverTo)}</div>` : ""}
+  <table><thead><tr><th>Item code</th><th>Description</th><th class="n">Qty</th><th>Unit</th><th class="n">Unit price</th><th class="n">Amount</th></tr></thead><tbody>
+  ${ls.map(l => `<tr><td>${esc(l.ProductCode || "")}</td><td>${lines(l.Description)}${l.TaxCode === "FRE" ? " <small>(GST-free)</small>" : ""}</td><td class="n">${esc(l.Qty)}</td><td>${esc(l.Unit || "")}</td><td class="n">${k2(l.UnitCost)}</td><td class="n">${k2(poLineAmt(l))}</td></tr>`).join("")}
+  </tbody></table>
+  <div class="pq-tot"><div><span>Subtotal (ex GST)</span><span>${k2(t.sub)}</span></div><div><span>GST ${gstPct()}%</span><span>${k2(t.gst)}</span></div><div class="g"><span>Total (inc GST)</span><span>${k2(t.inc)}</span></div></div>
+  ${p.Notes ? `<div class="pq-terms"><b>Notes</b><br>${lines(p.Notes)}</div>` : ""}
+  ${terms ? `<div class="pq-terms"><b>Terms</b><br>${lines(terms)}</div>` : ""}
+  <div class="pq-foot">Please quote PO no. ${esc(p.Title)} on your delivery docket and invoice. All prices in Papua New Guinea Kina (PGK).</div></div>`;
+}
+function openPOEmail(p){
+  const box = setting("POMailbox", "").trim(), co = setting("CompanyName", BRAND.COMPANY), first = String(p.SupplierContact || "").trim().split(/\s+/)[0];
+  const msg = `Dear ${first || "Sir/Madam"},\n\nPlease find attached our purchase order ${p.Title}${p.RequiredDate ? `, required by ${fmtDate(p.RequiredDate)}` : ""}.\n\nPlease confirm the order and the expected delivery date, and quote PO ${p.Title} on your delivery docket and invoice.\n\nKind regards,\n${me()}\n${co}`;
+  openDialog({ cls:"f-po", kind:"Purchasing · Email", title:`Email PO ${p.Title}`, save:"Send",
+    body:`<fieldset><legend>Email</legend><div class="fg">
+      <label class="fld w3"><span>From</span><input readonly tabindex=-1 value="${esc(box || `${account?.username || ""} — your own mailbox (a shared purchasing mailbox can be set in Settings)`)}"></label>
+      <label class="fld w2"><span class="req">To (separate several with ;)</span><input name="to" required value="${esc(p.SupplierEmail || "")}"></label>
+      <label class="fld"><span>Cc</span><input name="cc" value=""></label>
+      <label class="fld w3"><span class="req">Subject</span><input name="subject" required value="${esc(`Purchase order ${p.Title} from ${co}`)}"></label>
+      <label class="fld w3"><span>Message</span><textarea name="body" style="min-height:190px">${esc(msg)}</textarea></label>
+      <label class="fld w3 chk"><span><input type="checkbox" id="attachPdf" checked> Attach the PO as a PDF (PO ${esc(p.Title)}.pdf)</span></label></div></fieldset>
+      ${p.POStatus === "Draft" ? `<p class="count">Sending marks the PO as sent.</p>` : ""}`,
+    onSubmit: async () => {
+      const split = v => v.split(/[;,]/).map(x => x.trim()).filter(Boolean), to = split(val("to")), cc = split(val("cc"));
+      const bad = [...to, ...cc].find(a => !EMAIL_RE.test(a)); if (bad) return toast(`"${bad}" doesn't look like an email address`);
+      let pdf = null;
+      if ($("#attachPdf").checked){ toast("Making the PDF…"); pdf = await pdfBase64(poPrintHtml(p), `PO ${p.Title}.pdf`); }
+      const message = { subject: val("subject"), body:{ contentType:"HTML", content: esc($("#dlgBody [name=body]").value).replace(/\n/g, "<br>") },
+        toRecipients: to.map(a => ({ emailAddress:{ address:a } })), ccRecipients: cc.map(a => ({ emailAddress:{ address:a } })),
+        attachments: pdf ? [{ "@odata.type":"#microsoft.graph.fileAttachment", name:`PO ${p.Title}.pdf`, contentType:"application/pdf", contentBytes:pdf }] : [] };
+      if (!DEMO) await sendMail(message, box);
+      $("#dlg").close();
+      if (p.POStatus === "Draft") await setPO(p, { POStatus:"Sent", SentDate:TODAY }, `Emailed PO ${p.Title} to ${to.join(", ")} and marked it as sent`); else toast(`Emailed PO ${p.Title} to ${to.join(", ")}`);
+    } });
+}
+
+/* ---------------- on the job page ---------------- */
+function jobPurchases(j){
+  const rows = (D.po || []).filter(p => p.JobNo === j.Title).sort((a, b) => String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true }));
+  const live = rows.filter(p => p.POStatus !== "Cancelled"), total = live.reduce((t, p) => t + num(p.SubtotalEx), 0);
+  return `<div class="bar"><span class="count">${live.length} purchase order${live.length === 1 ? "" : "s"} · ${k2(total)} ex GST</span><span class="grow"></span><button class="btn primary" data-newpo="${esc(j.Title)}">+ New purchase order</button></div>
+  <div class="tablewrap"><table><thead><tr><th>PO</th><th>Date</th><th>Supplier</th><th>Reference</th><th>ETA</th><th>Total ex GST</th><th>Status</th></tr></thead><tbody>
+  ${rows.map(p => `<tr data-go="purchases/${encodeURIComponent(p.Title)}" tabindex="0" class="${p.POStatus === "Cancelled" ? "muted" : ""}"><td class="mono"><b>${esc(p.Title)}</b></td><td class="mono">${fmtDate(p.OrderDate)}</td>
+    <td>${esc(p.SupplierName || "")}</td><td>${esc(p.Reference || "")}</td><td class="mono">${PO_WAITING.includes(poStatus(p)) ? fmtDate(p.ETA) : ""}</td><td class="mono">${k2(p.SubtotalEx)}</td><td>${poPill(p)}</td></tr>`).join("")}
+  </tbody></table>${rows.length ? "" : `<div class="empty">No purchase orders for this job — click <b>+ New purchase order</b> to order parts from a supplier</div>`}</div>
+  <p class="count">When goods arrive, open the PO and click <b>Receive goods</b> — the items can go straight onto this job's materials.</p>`;
+}
+const jobOnOrder = no => (D.po || []).filter(p => p.JobNo === no && PO_WAITING.includes(poStatus(p)));
+
+/* =====================================================================
    SETTINGS: company & quote defaults, labour rates
    ===================================================================== */
 const COMPANY_KEYS = [
@@ -2070,14 +2447,20 @@ const COMPANY_KEYS = [
   ["GSTRatePct","GST %","number",1], ["MaterialMarkupPct","Default material markup %","number",1], ["QuoteValidityDays","Quotes valid for (days)","number",1],
   ["QuoteFollowUpDays","Follow up sent quotes after (days)","number",1], ["PaymentTermsDays","Default payment terms (days)","number",1],
   ["LoadDays","Days of history screens and phones read (time, materials, notes, bookings, invoices — default 120)","number",1],
-  ["QuoteTerms","Standard quote terms (copied onto each new quote; can be changed per quote)","textarea",3] ];
+  ["QuoteTerms","Standard quote terms (copied onto each new quote; can be changed per quote)","textarea",3],
+  ["POMailbox","Shared purchasing mailbox — purchase orders are emailed from it (blank = each person's own mailbox)","email",2],
+  ["POTerms","Terms printed on purchase orders","textarea",3] ];
+// Delivery address printed on purchase orders: one per branch, plus a default
+const poAddressKeys = () => [["PODeliverTo","Default delivery address on purchase orders","textarea",3], ...branches().map(b => [brKey(b), `Delivery address on purchase orders — ${b}`,"textarea",3])];
 const isAdmin = () => S.role === "Admin";
 function companySettings(){
   const v = k => setting(k, ""), show = (k, d = "—") => v(k) ? esc(v(k)) : `<span class="count">${d}</span>`;
   return `<div class="bar" style="margin-top:22px"><h2>Company &amp; quotes</h2><span class="grow"></span>${isAdmin() ? `<button class="btn" id="editCompany">Edit</button>` : ""}</div>
   <div class="grid two">
     <div class="card"><h3>Printed on quotes and invoices</h3><dl class="kv"><dt>Company</dt><dd>${show("CompanyName")}</dd><dt>Details</dt><dd>${v("CompanyDetails") ? lines(v("CompanyDetails")) : `<span class="count">not set — add address, TIN and bank details</span>`}</dd>
-      <dt>Emailed from</dt><dd>${v("AccountsMailbox") ? esc(v("AccountsMailbox")) : `<span class="pill p-warn">not set</span> <span class="count">quotes go from each person's own mailbox</span>`}</dd></dl></div>
+      <dt>Emailed from</dt><dd>${v("AccountsMailbox") ? esc(v("AccountsMailbox")) : `<span class="pill p-warn">not set</span> <span class="count">quotes go from each person's own mailbox</span>`}</dd>
+      <dt>POs emailed from</dt><dd>${v("POMailbox") ? esc(v("POMailbox")) : `<span class="count">each person's own mailbox</span>`}</dd>
+      <dt>PO delivery address</dt><dd>${poAddressKeys().filter(([k]) => v(k)).map(([k, l]) => `<span class="count">${esc(l.replace(/^.*— /, "").replace(/^Default.*/, "Default"))}:</span> ${esc(v(k).split(/\r?\n/)[0])}`).join("<br>") || `<span class="count">not set — the company name and first line of its details are used</span>`}</dd></dl></div>
     <div class="card"><h3>Defaults</h3><dl class="kv"><dt>GST</dt><dd>${show("GSTRatePct", "10")}%</dd><dt>Material markup</dt><dd>${show("MaterialMarkupPct", "0")}%</dd>
       <dt>Quotes valid for</dt><dd>${show("QuoteValidityDays", "30")} days</dd><dt>Follow up after</dt><dd>${show("QuoteFollowUpDays", "7")} days</dd><dt>Payment terms</dt><dd>${show("PaymentTermsDays", "30")} days</dd>
       <dt>Quote terms</dt><dd>${v("QuoteTerms") ? `<span class="count">${lines(v("QuoteTerms"))}</span>` : `<span class="count">none</span>`}</dd></dl></div>
@@ -2085,12 +2468,13 @@ function companySettings(){
 }
 // ---- Numbering (quote and job number formats, next number) and the pick lists
 function numberingSettings(){
-  const ex = k => numMake(numFormat(k), k === "quote" ? 5813 : 22782);
+  const ex = k => numMake(numFormat(k), { quote:5813, job:22782, po:30773 }[k]);
   return `<div class="bar" style="margin-top:22px"><h2>Numbering &amp; lists</h2><span class="grow"></span>${isAdmin() ? `<button class="btn" id="editNumbering">Edit</button>` : ""}</div>
   <div class="grid two">
     <div class="card"><h3>Numbers</h3><dl class="kv">
       <dt>Quotes</dt><dd class="mono">${esc(numFormat("quote"))} <span class="count">e.g. ${esc(ex("quote"))} · options add A, B, C</span></dd>
       <dt>Jobs</dt><dd class="mono">${esc(numFormat("job"))} <span class="count">e.g. ${esc(ex("job"))}</span></dd>
+      <dt>Purchase orders</dt><dd class="mono">${esc(numFormat("po"))} <span class="count">e.g. ${esc(ex("po"))}</span></dd>
       <dt>Customers &amp; suppliers</dt><dd><span class="count">TSM / MYOB code typed in, or made from the name (ABLEC001)</span></dd></dl></div>
     <div class="card"><h3>Pick lists</h3><dl class="kv">${Object.entries(PICK_LISTS).map(([k, [l]]) => `<dt>${esc(l)}</dt><dd>${pickList(k).length ? esc(pickList(k).join(" · ")) : `<span class="count">none yet</span>`}</dd>`).join("")}</dl></div>
   </div>`;
@@ -2108,30 +2492,30 @@ async function saveSettings(pairs){
 }
 async function openNumbering(){
   const cur = {};
-  for (const k of ["quote","job"]){ const fmt = numFormat(k); try { cur[k] = await readCounter(numCounter(fmt, k)); } catch { cur[k] = null; } }
+  for (const k of ["quote","job","po"]){ const fmt = numFormat(k); try { cur[k] = await readCounter(numCounter(fmt, k)); } catch { cur[k] = null; } }
   const nf = (k, label) => `<label class="fld"><span class="req">${label} format</span><input name="fmt_${k}" required value="${esc(numFormat(k))}"></label>
-    <label class="fld"><span>Next ${label.toLowerCase().replace(/s$/, "")} number</span><input type="number" min="1" step="1" name="next_${k}" placeholder="${cur[k] != null ? cur[k] + 1 : "after the highest in use"}"></label>
+    <label class="fld"><span>Next ${k === "po" ? "PO" : label.toLowerCase().replace(/s$/, "")} number</span><input type="number" min="1" step="1" name="next_${k}" placeholder="${cur[k] != null ? cur[k] + 1 : "after the highest in use"}"></label>
     <div class="fld"><span>Example</span><b class="mono" id="ex_${k}"></b></div>`;
   openDialog({ kind:"Settings · Numbering & lists", title:"Numbering & pick lists",
-    body:`<fieldset><legend>Numbers</legend><div class="fg">${nf("quote", "Quotes")}${nf("job", "Jobs")}</div>
-      <p class="count"><b>{n}</b> is the running number, <b>{n:3}</b> pads it to 3 digits, <b>{yyyy}</b> is the year (a new count each year). ${esc(BRAND.SHORT)}'s TSM style: quotes <b>MP{n}</b>, jobs <b>{n}</b>.
+    body:`<fieldset><legend>Numbers</legend><div class="fg">${nf("quote", "Quotes")}${nf("job", "Jobs")}${nf("po", "POs")}</div>
+      <p class="count"><b>{n}</b> is the running number, <b>{n:3}</b> pads it to 3 digits, <b>{yyyy}</b> is the year (a new count each year). ${esc(BRAND.SHORT)}'s TSM style: quotes <b>MP{n}</b>, jobs <b>{n}</b>, purchase orders <b>{n}</b>.
       Leave <i>Next number</i> blank to carry on from the counter. A number already in use is never given again.</p></fieldset>
       <fieldset><legend>Pick lists — one per line</legend><div class="fg">${Object.entries(PICK_LISTS).map(([k, [l]]) =>
         `<label class="fld"><span>${esc(l)}</span><textarea name="pl_${k}" rows="6">${esc(pickList(k).join("\n"))}</textarea></label>`).join("")}</div>
       <p class="count">Removing an item doesn't change jobs that already use it. Only ${esc(BRAND.SHORT)} site owners can save these.</p></fieldset>`,
     onSubmit: async () => {
-      const pairs = [], bad = ["quote","job"].find(k => !/\{n(:\d+)?\}/.test(val("fmt_" + k)));
+      const pairs = [], bad = ["quote","job","po"].find(k => !/\{n(:\d+)?\}/.test(val("fmt_" + k)));
       if (bad) return toast(`The ${bad} format needs {n} for the running number`);
-      for (const k of ["quote","job"]) pairs.push([NUMBERING[k][0], val("fmt_" + k) === NUMBERING[k][2]() && !setting(NUMBERING[k][0], "") ? "" : val("fmt_" + k)]);
+      for (const k of ["quote","job","po"]) pairs.push([NUMBERING[k][0], val("fmt_" + k) === NUMBERING[k][2]() && !setting(NUMBERING[k][0], "") ? "" : val("fmt_" + k)]);
       for (const k of Object.keys(PICK_LISTS)){ const lines = val("pl_" + k).split(/\r?\n/).map(x => x.trim()).filter(Boolean), same = lines.join("\n") === PICK_LISTS[k][1].join("\n");
         pairs.push([k, same && !setting(k, "") ? "" : lines.join("\n")]); }
       try {
         const n = await saveSettings(pairs); let c = 0;
-        for (const k of ["quote","job"]) if (val("next_" + k)){ await setCounter(numCounter(val("fmt_" + k), k), Math.max(0, Math.floor(num(val("next_" + k))) - 1)); c++; }
+        for (const k of ["quote","job","po"]) if (val("next_" + k)){ await setCounter(numCounter(val("fmt_" + k), k), Math.max(0, Math.floor(num(val("next_" + k))) - 1)); c++; }
         $("#dlg").close(); render(); toast(n + c ? `Saved${n ? ` ${n} setting${n === 1 ? "" : "s"}` : ""}${c ? `${n ? " and" : ""} ${c} next number${c === 1 ? "" : "s"}` : ""}` : "Nothing changed");
       } catch(e){ toast(isForbidden(e) ? `Only ${BRAND.SHORT} site owners can change settings.` : "Couldn't save: " + e.message); }
     } });
-  const ex = () => $("#ex_quote") && ["quote","job"].forEach(k => { const f = val("fmt_" + k), n = val("next_" + k) || (cur[k] != null ? cur[k] + 1 : 1); $("#ex_" + k).textContent = /\{n/.test(f) ? numMake(f, n) : "needs {n}"; });
+  const ex = () => $("#ex_quote") && ["quote","job","po"].forEach(k => { const f = val("fmt_" + k), n = val("next_" + k) || (cur[k] != null ? cur[k] + 1 : { quote:5813, job:22782, po:30773 }[k]); $("#ex_" + k).textContent = /\{n/.test(f) ? numMake(f, n) : "needs {n}"; });
   $("#dlgBody").oninput = ex; ex();
 }
 
@@ -2148,13 +2532,14 @@ function bindSettings(){
   if ($("#editNumbering")) $("#editNumbering").onclick = openNumbering;
   const b = $("#editCompany"); if (!b) return;
   b.onclick = () => openDialog({ kind:"Settings · Company & quotes", title:"Company & quote defaults",
-    body:`<fieldset><legend>Company &amp; quotes</legend><div class="fg">${COMPANY_KEYS.map(([k, l, t, w]) =>
+    body:`<fieldset><legend>Company &amp; quotes</legend><div class="fg">${COMPANY_KEYS.concat(poAddressKeys()).map(([k, l, t, w]) =>
       t === "textarea" ? `<label class="fld w3"><span>${l}</span><textarea name="${k}">${esc(setting(k, ""))}</textarea></label>`
       : `<label class="fld ${w === 2 ? "w2" : ""}"><span>${l}</span><input name="${k}" type="${t}" ${t === "number" ? 'step="any" min="0"' : ""} value="${esc(setting(k, ""))}"></label>`).join("")}</div></fieldset>
       <p class="count">Only ${esc(BRAND.SHORT)} site owners can save these.</p>`,
     onSubmit: async () => {
       const box = val("AccountsMailbox"); if (box && !EMAIL_RE.test(box)) return toast(`"${box}" doesn't look like an email address`);
-      const n = await saveSettings(COMPANY_KEYS.map(([k]) => [k, $(`#dlgBody [name="${k}"]`).value.trim()]));
+      const box2 = val("POMailbox"); if (box2 && !EMAIL_RE.test(box2)) return toast(`"${box2}" doesn't look like an email address`);
+      const n = await saveSettings(COMPANY_KEYS.concat(poAddressKeys()).map(([k]) => [k, $(`#dlgBody [name="${k}"]`).value.trim()]));
       $("#dlg").close(); render(); toast(n ? `Saved ${n} setting${n === 1 ? "" : "s"}` : "Nothing changed");
     } });
 }
@@ -2162,7 +2547,7 @@ function bindSettings(){
 /* =====================================================================
    JOB CENTRE
    ===================================================================== */
-const JOB_TABS = [["details","Details"],["schedule","Schedule"],["time","Time"],["materials","Materials"],["notes","Notes & Photos"],["checklists","Checklists"],["safety","Safety"],["invoice","Invoice"]];
+const JOB_TABS = [["details","Details"],["schedule","Schedule"],["time","Time"],["materials","Materials"],["notes","Notes & Photos"],["checklists","Checklists"],["safety","Safety"],["purchases","Purchases"],["invoice","Invoice"]];
 const J_FILTERS = [["open","Open"],["unscheduled","Unscheduled"],["Scheduled","Scheduled"],["In Progress","In progress"],["On Hold","On hold"],["overdue","Overdue"],["Completed","Completed"],["Invoiced","Invoiced"],["Cancelled","Cancelled"],["all","All"]];
 S.jf = { q:"", status:"open", type:"", division:"", team:"", branch:"", sup:"" };
 const me = () => S.me?.Title || account?.name || "";
@@ -2309,8 +2694,8 @@ function viewJob(){
   const tab = JOB_TABS.some(([k]) => k === jobTabOf()) ? jobTabOf() : "details", st = jobState(j, jobFacts());
   const site = D.sites.find(x => x.SiteCode === j.SiteCode);
   const cnt = { schedule: D.assign.filter(a => a.Title === no && a.AssignStatus !== "Cancelled").length, time: D.time.filter(t => t.JobNo === no).length, materials: D.mat.filter(m => m.Title === no).length,
-    notes: D.notes.filter(n => n.Title === no).length, checklists: D.resp.filter(r => r.Title === no).length, safety: (D.inc || []).filter(i => i.JobNo === no).length, invoice: D.inv.filter(i => i.JobNo === no).length };
-  const body = { details:jobDetails, schedule:jobSchedule, time:jobTime, materials:jobMaterials, notes:jobNotes, checklists:jobChecklists, safety:jobSafety, invoice:jobInvoice }[tab](j, st);
+    notes: D.notes.filter(n => n.Title === no).length, checklists: D.resp.filter(r => r.Title === no).length, safety: (D.inc || []).filter(i => i.JobNo === no).length, purchases: (D.po || []).filter(p => p.JobNo === no && p.POStatus !== "Cancelled").length, invoice: D.inv.filter(i => i.JobNo === no).length };
+  const body = { details:jobDetails, schedule:jobSchedule, time:jobTime, materials:jobMaterials, notes:jobNotes, checklists:jobChecklists, safety:jobSafety, purchases:jobPurchases, invoice:jobInvoice }[tab](j, st);
   return `
   ${S.jobLoading.has(no) ? `<div class="banner hist">Reading this job's full history…</div>` : ""}
   <div class="crumbs"><a href="#/jobs">Job Centre</a> › ${esc(j.Title)}</div>
@@ -2319,6 +2704,7 @@ function viewJob(){
     ${st === "On Hold" ? `<button class="btn" data-jact="resume">Resume</button>` : st === "Cancelled" ? `<button class="btn" data-jact="resume">Reopen</button>` : !CLOSED.includes(st) ? `<button class="btn" data-jact="hold">Put on hold</button><button class="btn danger" data-jact="cancel">Cancel job</button>` : ""}
     ${mjeAppAllowed("safety") ? `<a class="btn" href="${esc(incidentLink(j, site))}" target="_blank" rel="noopener">⚠ Log an incident</a>` : ""}</div>
   ${st === "On Hold" && j.OnHoldReason ? `<div class="banner">On hold: ${esc(j.OnHoldReason)}${j.PartsOnOrder ? ` · parts on order: ${esc(j.PartsOnOrder)}${j.PartsSupplier ? " (" + esc(j.PartsSupplier) + ")" : ""}${j.PartsETA ? ", ETA " + fmtDate(j.PartsETA) : ""}` : ""}</div>` : ""}
+  ${jobOnOrder(no).length ? `<div class="banner">On order: ${jobOnOrder(no).map(p => `<a href="#/purchases/${encodeURIComponent(p.Title)}">PO ${esc(p.Title)}</a> from ${esc(p.SupplierName || "")}${p.ETA ? ", ETA " + fmtDate(p.ETA) : ""}${poLate(p) ? ` <span class="pill p-crit">overdue</span>` : ""}`).join(" · ")}</div>` : ""}
   ${j.LatestUpdate ? `<div class="banner ok"><b>Latest update</b> ${fmtDate(j.LatestUpdateDate)}${j.LatestUpdateBy ? " · " + esc(j.LatestUpdateBy) : ""}: ${esc(j.LatestUpdate)}</div>` : ""}${st === "Cancelled" && j.CancelReason ? `<div class="banner err">Cancelled: ${esc(j.CancelReason)}</div>` : ""}
   <div class="tabs" role="tablist">${JOB_TABS.map(([k, l]) => `<a role="tab" href="#/jobs/${encodeURIComponent(no)}/${k}" class="${k === tab ? "on" : ""}" aria-selected="${k === tab}">${l}${cnt[k] ? ` <span>${cnt[k]}</span>` : ""}</a>`).join("")}</div>
   ${body}`;
