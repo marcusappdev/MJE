@@ -56,6 +56,7 @@ label.chk input{width:auto}
 tr.muted td{opacity:.55}
 select.qs{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px 6px;color:var(--text);font-size:12px}
 .banner.ok{background:var(--ok-bg);color:var(--ok)}
+.banner.hist{background:var(--surface2);color:var(--muted);border:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .assetpick{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 label.apick{display:flex;gap:6px;align-items:center;color:var(--text);font-size:13px;cursor:pointer}
 .photos{display:flex;flex-wrap:wrap;gap:8px}
@@ -267,15 +268,41 @@ const brDefault = () => S.branch || (branches().length ? brOf(S.me) : "");
 
 /* ---------------- data: each list is read once, then kept until Refresh ---------------- */
 const D = {}, LOADING = {};
+/* Lists that grow by thousands a year are read for a window only: the last LoadDays days (Settings, default 120)
+   — bookings also include everything ahead. Opening a job reads that job's whole history (needJob).
+   "Load all history" reads everything. S.win[k] holds the window start while D[k] is a window.          */
+const WINDOW = { time:"EntryDate", mat:"EntryDate", notes:"NoteDate", comp:"CompletedDate", resp:"ResponseDate", assign:"AssignDate", inv:"InvoiceDate" };
+const JOBKEY = { time:"JobNo", mat:"Title", notes:"Title", comp:"Title", resp:"Title", assign:"Title", inv:"JobNo" };
+S.win = {}; S.jobFull = new Set(); S.jobLoading = new Set(); S.history = "";
+const loadDays = () => { const n = Math.round(num(setting("LoadDays", 120))); return n >= 7 ? n : 120; };
+const windowed = () => Object.keys(S.win).length > 0;
 async function need(keys, soft){
+  if (keys.includes("settings") && keys.some(k => WINDOW[k])) await need(["settings"], soft);   // LoadDays first
+  const from = addDays(TODAY, -loadDays());
   await Promise.all(keys.map(k => {
     if (D[k]) return null;
     if (DEMO || !S.have.has(CONFIG.LISTS[k])) { D[k] = []; return null; }       // not set up yet: treat as empty
-    return LOADING[k] ||= listItems(CONFIG.LISTS[k]).then(r => { D[k] = r; delete LOADING[k]; },
+    const filter = !S.history && WINDOW[k] ? `fields/${WINDOW[k]} ge '${from}'` : "";
+    return LOADING[k] ||= listItems(CONFIG.LISTS[k], filter).then(r => { D[k] = r; delete LOADING[k]; if (r.filtered) S.win[k] = from; else delete S.win[k]; },
       e => { delete LOADING[k]; if (soft && (isForbidden(e) || isMissingList(e))) { D[k] = []; return; } throw e; });   // soft: staff can't read every list
   }));
 }
-function refreshData(){ Object.keys(D).forEach(k => delete D[k]); statusSyncDone = false; render(); }
+// One job's whole history (time, materials, notes, completions, checklists, bookings, invoices), added to the windows
+const needsJob = no => !DEMO && !!no && windowed() && !S.jobFull.has(no);
+async function needJob(no){
+  if (!needsJob(no)) return;
+  S.jobFull.add(no); S.jobLoading.add(no);
+  const q = String(no).replace(/'/g, "''");
+  try { await Promise.all(Object.keys(S.win).filter(k => D[k]).map(async k => {
+    try {
+      const rows = await listItems(CONFIG.LISTS[k], `fields/${JOBKEY[k]} eq '${q}'`);
+      if (rows.filtered === false){ D[k] = rows; delete S.win[k]; return; }        // SharePoint gave the whole list
+      const have = new Set(D[k].map(r => r.id)); rows.forEach(r => { if (!have.has(r.id)) D[k].push(r); });
+    } catch(e){ console.warn(`Couldn't read the history of ${no} from ${k}`, e.message); }
+  })); } finally { S.jobLoading.delete(no); }
+}
+function loadAllHistory(){ S.history = "all"; Object.keys(S.win).forEach(k => delete D[k]); S.win = {}; S.jobFull.clear(); statusSyncDone = false; render(); }
+function refreshData(){ Object.keys(D).forEach(k => delete D[k]); S.win = {}; S.jobFull.clear(); statusSyncDone = false; render(); }
 
 /* ---------------- job rules (every screen uses these) ----------------
    Technicians never edit MJE_Jobs. A job's status is worked out from what has happened:
@@ -296,10 +323,17 @@ function jobFacts(){
   (D.assign || []).forEach(a => { if (a.AssignStatus !== "Cancelled") get(a.Title).booked = true; });
   return f;
 }
+const ST_RANK = { New:0, Scheduled:1, "In Progress":2, Completed:3 };
+// When only a window of time / completions / bookings is loaded, older records may be missing,
+// so the worked-out status can only move a job forward from its saved status, never back.
+const partialFacts = no => ["time","comp","assign"].some(k => S.win[k]) && !S.jobFull.has(no);
 function jobState(j, facts){
   if (OFFICE_STATUS.includes(j.JobStatus)) return j.JobStatus;
   const x = facts.get(j.Title) || {};
-  return x.comp ? "Completed" : x.time ? "In Progress" : x.booked ? "Scheduled" : "New";
+  const got = x.comp ? "Completed" : x.time ? "In Progress" : x.booked ? "Scheduled" : "New";
+  if (!partialFacts(j.Title)) return got;
+  const was = j.JobStatus in ST_RANK ? j.JobStatus : "New";
+  return ST_RANK[was] > ST_RANK[got] ? was : got;
 }
 // Office/Admin only: write the worked-out status back to MJE_Jobs so SharePoint views and exports stay true
 let statusSyncDone = false;
@@ -401,9 +435,14 @@ function render(){
         $("#main").innerHTML = banner + `<div class="banner err">${isForbidden(e) ? `You don't have access to some of the Service Hub lists. Ask a ${esc(BRAND.SHORT)} site owner to add you to the ${esc(BRAND.OFFICE_GROUP)} group.` : isNetErr(e) ? "No connection — couldn't reach SharePoint. Try again when you have signal." : "Couldn't load data from SharePoint: " + esc(e.message)}</div>`; });
     return;
   }
+  const jn = S.route === "jobs" ? jobNoOf() : S.route === "my" ? myParam() : "";
+  if (needsJob(jn)){ const route = S.route, param = S.param; needJob(jn).then(() => { if (S.route === route && S.param === param) render(); }); }
+  if (windowed() && ["dash","jobs","schedule","customers","site"].includes(S.route) && !jn)
+    banner += `<div class="banner hist"><span>Showing time, materials, notes, bookings and invoices from the last ${loadDays()} days (since ${fmtDate(Object.values(S.win)[0])}) — plus bookings ahead. Opening a job shows its whole history.</span><span class="grow"></span><button class="btn" id="loadAll">Load all history</button></div>`;
   const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, suppliers:viewSuppliers, my:viewMy }[S.route] || viewNoAccess;
   $("#main").innerHTML = banner + inBranch(view);
   if ($("#backOffice")) $("#backOffice").onclick = () => { S.viewAs = ""; go("dash"); };
+  if ($("#loadAll")) $("#loadAll").onclick = loadAllHistory;
   bindView();
   if (S.route === "dash" || S.route === "jobs") syncJobStatuses();
   if (S.route === "my" && !OFFLINE_AT) { clearTimeout(render._snap); render._snap = setTimeout(saveSnapshot, 1500); }
@@ -1930,6 +1969,7 @@ const COMPANY_KEYS = [
   ["CompanyDetails","Address, phone, email, TIN and bank details (printed under the name)","textarea",3],
   ["GSTRatePct","GST %","number",1], ["MaterialMarkupPct","Default material markup %","number",1], ["QuoteValidityDays","Quotes valid for (days)","number",1],
   ["QuoteFollowUpDays","Follow up sent quotes after (days)","number",1], ["PaymentTermsDays","Default payment terms (days)","number",1],
+  ["LoadDays","Days of history screens and phones read (time, materials, notes, bookings, invoices — default 120)","number",1],
   ["QuoteTerms","Standard quote terms (copied onto each new quote; can be changed per quote)","textarea",3] ];
 const isAdmin = () => S.role === "Admin";
 function companySettings(){
@@ -2172,6 +2212,7 @@ function viewJob(){
     notes: D.notes.filter(n => n.Title === no).length, checklists: D.resp.filter(r => r.Title === no).length, safety: (D.inc || []).filter(i => i.JobNo === no).length, invoice: D.inv.filter(i => i.JobNo === no).length };
   const body = { details:jobDetails, schedule:jobSchedule, time:jobTime, materials:jobMaterials, notes:jobNotes, checklists:jobChecklists, safety:jobSafety, invoice:jobInvoice }[tab](j, st);
   return `
+  ${S.jobLoading.has(no) ? `<div class="banner hist">Reading this job's full history…</div>` : ""}
   <div class="crumbs"><a href="#/jobs">Job Centre</a> › ${esc(j.Title)}</div>
   <div class="bar"><h2>${esc(j.Title)}</h2>${jobPill(st)}${priPill(j.Priority)}<span class="count">${esc(j.CustomerName || "")}${j.SiteName ? " · " + esc(j.SiteName) : ""}</span><span class="grow"></span>
     ${st !== "Invoiced" ? `<button class="btn" data-jact="edit">Edit details</button><button class="btn" data-jact="update">Latest update</button>` : ""}
