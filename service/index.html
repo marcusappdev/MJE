@@ -214,6 +214,7 @@ const ROUTES = {
   schedule:  { label:"Scheduler",         roles:OFFICE, lists:["jobs","assign","staff"], load:["jobs","assign","time","comp","customers","sites","settings","trn","tt"], step:"Scheduler — one row per technician, day and week views, drag and drop, clash warnings" },
   invoices:  { label:"Invoicing",         roles:OFFICE, lists:["inv","iline","pay","sync","numbers"], step:"Invoicing — invoices from completed jobs, deposits, progress, credit notes, payments, Send to MYOB" },
   settings:  { label:"Settings",          roles:OFFICE, lists:["settings","rates","numbers","chk"], load:["settings","rates"], step:"" },
+  timesheet: { label:"Day timesheet",     roles:OFFICE, nav:false, lists:["time"], load:["time","jobs","rates","settings","assign"], step:"" },
   suppliers: { label:"Suppliers",         roles:OFFICE, nav:false, lists:["supp"], load:["supp","settings"], step:"" },
   products:  { label:"Products",          roles:OFFICE, nav:false, lists:["prod"], load:["prod","supp","settings"], step:"" },
   site:      { label:"Site",              roles:OFFICE, nav:false, lists:["customers","sites","assets"], load:CUST_LOAD, step:"" },
@@ -456,11 +457,13 @@ function render(){
   if (needsJob(jn)){ const route = S.route, param = S.param; needJob(jn).then(() => { if (S.route === route && S.param === param) render(); }); }
   if (windowed() && ["dash","jobs","schedule","customers","site"].includes(S.route) && !jn)
     banner += `<div class="banner hist"><span>Showing time, materials, notes, bookings and invoices from the last ${loadDays()} days (since ${fmtDate(Object.values(S.win)[0])}) — plus bookings ahead. Opening a job shows its whole history.</span><span class="grow"></span><button class="btn" id="loadAll">Load all history</button></div>`;
-  const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, suppliers:viewSuppliers, products:viewProducts, purchases:viewPurchases, my:viewMy }[S.route] || viewNoAccess;
+  const view = { dash:viewDash, customers:viewCustomers, site:viewSite, quotes:viewQuotes, jobs:viewJobs, schedule:viewSchedule, invoices:viewTodo, settings:viewSettings, suppliers:viewSuppliers, products:viewProducts, purchases:viewPurchases, timesheet:viewTimesheet, my:viewMy }[S.route] || viewNoAccess;
   $("#main").innerHTML = banner + inBranch(view);
   if ($("#backOffice")) $("#backOffice").onclick = () => { S.viewAs = ""; go("dash"); };
   if ($("#loadAll")) $("#loadAll").onclick = loadAllHistory;
   bindView();
+  if (S.offer && S.param && S.param.split("/")[0] === S.offer.no){ const o = S.offer; S.offer = null;
+    const rec = o.kind === "quote" ? D.quotes?.find(x => x.Title === o.no) : jobByNo(o.no); if (rec) offerPrint(o.kind, rec); }
   if (S.route === "dash" || S.route === "jobs") syncJobStatuses();
   if (S.route === "my" && !OFFLINE_AT) { clearTimeout(render._snap); render._snap = setTimeout(saveSnapshot, 1500); }
 }
@@ -468,7 +471,7 @@ function bindView(){
   document.querySelectorAll("[data-go]").forEach(b => { b.onclick = () => go(b.dataset.go);
     b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(b.dataset.go); } }; });
   if ($("#refresh")) $("#refresh").onclick = refreshData;
-  bindCustomers(); bindRoles(); bindQuotes(); bindSettings(); bindJobs(); bindPurchases(); bindSchedule(); bindMy();
+  bindCustomers(); bindRoles(); bindQuotes(); bindSettings(); bindJobs(); bindPurchases(); bindTimesheet(); bindSchedule(); bindMy();
   const va = $("#viewAs"); if (va) va.onclick = () => { const n = $("#viewAsName").value; if (!n) return toast("Pick a technician first"); S.viewAs = n; go("my"); };
 }
 
@@ -1208,8 +1211,8 @@ const FORMS = {
   quote: { list:"quotes", name:"Quote", kind:"Quotes · Quote", code:"Title", numbering:"quote", sections:[
     ["Customer", [["Title","Quote no.","text",{ro:1}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}], ["SiteCode","Site","select",{w:2,opts:() => siteOpts(FORM_CUST)}],
       ["JobType","Job type","select",{opts:JOB_TYPES,req:1}], ["ContactName","Attention (contact name)","text"], ["ContactEmail","Contact email — the quote is emailed here","email",{w:2}] ]],
-    ["Quote", [["Branch","Branch","select",{opts:() => branches()}], ["QuoteType","Quote or tender","select",{opts:["Quote","Tender"],req:1}], ["Division","Division","select",{opts:() => pickList("Divisions")}], ["ActionedBy","Actioned by","select",{opts:() => staffOpts()}],
-      ["QuoteDate","Quote date","date",{req:1}], ["ValidUntil","Valid until","date",{req:1}], ["ClosingDate","Tender closing date","date"],
+    ["Quote", [["ProjectName","Project name (printed on the folder cover sheet)","text",{w:3}], ["Branch","Branch","select",{opts:() => branches()}], ["QuoteType","Quote or tender","select",{opts:["Quote","Tender"],req:1}], ["Division","Division","select",{opts:() => pickList("Divisions")}], ["ActionedBy","Actioned by","select",{opts:() => staffOpts()}],
+      ["QuoteDate","Quote date","date",{req:1}], ["ValidUntil","Valid until","date",{req:1}], ["ClosingDate","Tender closing date","date"], ["InspectedBy","Site inspected by","select",{opts:() => staffOpts()}], ["InspectionDate","Inspection date","date"],
       ["Scope","Scope of work (printed on the quote)","textarea",{w:3}], ["Terms","Terms (printed on the quote)","textarea",{w:3}], ["Notes","Internal notes (not printed)","textarea",{w:3}] ]],
     ["Approval", [["ApprovalDate","Approval date","date"], ["ApprovalRef","Approval ref (PO / WO / COD)","text"], ["ApprovedAmountEx","Approved amount (ex GST)","number",{min0:1}] ], {editOnly:1}] ] },
   job: { list:"jobs", name:"Job", kind:"Job Centre · Job", code:"Title", numbering:"job", sections:[
@@ -1419,8 +1422,8 @@ async function submitForm(e){
     toast(`Saved ${saved[F.code]}${F.code === "Title" ? "" : " · " + saved.Title}`);
     if (!item && kind === "cust") go("customers", saved.CustomerCode);
     else if (kind === "supp" || kind === "prod" || kind === "cont") render();
-    else if (!item && kind === "quote") go("quotes", saved.Title);
-    else if (!item && kind === "job") go("jobs", saved.Title);
+    else if (!item && kind === "quote"){ S.offer = { kind:"quote", no:saved.Title }; go("quotes", saved.Title); }
+    else if (!item && kind === "job"){ S.offer = { kind:"job", no:saved.Title }; go("jobs", saved.Title); }
     else if (!item && kind === "po"){ S.poRead.add(saved.Title); go("purchases", saved.Title); }
     else if (!item && kind === "site" && S.route !== "customers") go("site", saved.SiteCode);
     else render();
@@ -1794,11 +1797,11 @@ function viewQuote(no){
   const st = quoteState(q), draft = q.QuoteStatus === "Draft";
   const c = D.customers.find(x => x.CustomerCode === q.CustomerCode), site = D.sites.find(x => x.SiteCode === q.SiteCode);
   const b = (act, label, primary) => `<button class="btn ${primary ? "primary" : ""}" data-qact="${act}">${label}</button>`;
-  const actions = draft ? [b("edit","Edit details"), b("print","Print / PDF"), b("variant","Copy as option"), b("cancel","Cancel"), b("email","Email quote"), b("sent","Mark as sent", 1)]
-    : st === PENDING ? [b("edit","Edit details"), b("print","Print / PDF"), b("email","Email again"), b("follow","Followed up"), b("variant","Copy as option"), b("redraft","Back to draft"), b("cancel","Cancel"), b("declined","Not approved"), b("accepted","Approved", 1)]
-    : st === "Expired" ? [b("print","Print / PDF"), b("redraft","Re-issue (back to draft)"), b("cancel","Cancel"), b("declined","Not approved"), b("accepted","Approved", 1)]
-    : st === "Approved" ? [b("edit","Edit details"), b("print","Print / PDF"), q.JobNo ? `<a class="btn primary" href="#/jobs/${encodeURIComponent(q.JobNo)}">Open job ${esc(q.JobNo)}</a>` : b("convert","Convert to job", 1)]
-    : [b("print","Print / PDF"), b("variant","Copy as option"), b("redraft","Back to draft")];
+  const actions = draft ? [b("edit","Edit details"), b("print","Print…"), b("variant","Copy as option"), b("cancel","Cancel"), b("email","Email quote"), b("sent","Mark as sent", 1)]
+    : st === PENDING ? [b("edit","Edit details"), b("print","Print…"), b("email","Email again"), b("follow","Followed up"), b("variant","Copy as option"), b("redraft","Back to draft"), b("cancel","Cancel"), b("declined","Not approved"), b("accepted","Approved", 1)]
+    : st === "Expired" ? [b("print","Print…"), b("redraft","Re-issue (back to draft)"), b("cancel","Cancel"), b("declined","Not approved"), b("accepted","Approved", 1)]
+    : st === "Approved" ? [b("edit","Edit details"), b("print","Print…"), q.JobNo ? `<a class="btn primary" href="#/jobs/${encodeURIComponent(q.JobNo)}">Open job ${esc(q.JobNo)}</a>` : b("convert","Convert to job", 1)]
+    : [b("print","Print…"), b("variant","Copy as option"), b("redraft","Back to draft")];
   const ls = draft ? QE.lines : quoteLines(no);
   return `
   <div class="crumbs"><a href="#/quotes">Quotes</a> › ${esc(q.Title)}</div>
@@ -1923,7 +1926,7 @@ function quoteReady(q){
 }
 function quoteAction(q, act){
   if (act === "edit") return openForm("quote", q);
-  if (act === "print"){ if (S.qe[q.Title]?.dirty) return toast("Save the lines first"); return printDoc(quotePrintHtml(q), q.Title); }
+  if (act === "print"){ if (S.qe[q.Title]?.dirty) return toast("Save the lines first"); return openPrintMenu("quote", q); }
   if (act === "email"){ if (quoteReady(q)) openEmail(q); return; }
   if (act === "sent"){ if (quoteReady(q)) setQuote(q, sentFields(), `${q.Title} marked as sent — follow up on ${fmtDate(addDays(TODAY, followDays()))}`); return; }
   if (act === "accepted") return openApproval(q);
@@ -1996,7 +1999,7 @@ function openConvert(q){
       Object.keys(job).forEach(k => { if (job[k] === "" || job[k] == null) delete job[k]; });
       const saved = DEMO ? { id:"demo" + Date.now(), ...job } : await saveListItem(CONFIG.LISTS.jobs, null, job);
       D.jobs.push({ ...job, ...saved }); $("#dlg").close();
-      if (await setQuote(q, { ...approvalFields(q, t), JobNo:no }, `Created job ${no} from ${q.Title}`)) go("jobs", no);
+      if (await setQuote(q, { ...approvalFields(q, t), JobNo:no }, `Created job ${no} from ${q.Title}`)){ S.offer = { kind:"job", no }; go("jobs", no); }
     } });
 }
 
@@ -2094,6 +2097,210 @@ function openEmail(q){
       $("#dlg").close();
       if (q.QuoteStatus === "Draft") await setQuote(q, sentFields(), `Emailed ${q.Title} to ${to.join(", ")} and marked it as sent`); else toast(`Emailed ${q.Title} to ${to.join(", ")}`);
     } });
+}
+
+/* =====================================================================
+   PRINTED FORMS — the paper trail MJE keeps in folders
+   · Folder cover sheet (pasted on the blue quote / tender folder)
+   · Job card (pasted on the green job folder) — TSM layout
+   · Service job sheet, filled in with the job's details, for work done on paper
+   · Daily timesheet for one person, printed from the time entered
+   New quotes and jobs offer to print their cover sheet / job card straight away.
+   ===================================================================== */
+const DEFAULT_JOBSHEET_TERMS = "This is to certify that I am satisfied with the works completed (stated above) on this service job sheet. I am aware that I must contact MJ Electrical Contractors Ltd within 14 days after I have accepted and acknowledged this particular work for warranty claims if the same problem should arise. All goods and materials supplied shall remain the property of MJ Electrical, and the title to the materials shall not pass from MJ Electrical until the invoiced party has paid the whole sum invoiced in respect of those goods and related services. The invoiced party irrevocably authorises MJ Electrical and its agent to recover any materials supplied if the invoiced party does not so pay the invoiced sum.";
+const FORM_CSS = `
+  .pf{font:12px/1.4 "Segoe UI",Arial,sans-serif;color:#111;background:#fff;width:100%}
+  .pf table{width:100%;border-collapse:collapse}
+  .pf td,.pf th{border:1px solid #888;padding:4px 6px;vertical-align:top;text-align:left}
+  .pf .lab{color:#444;font-size:11px;background:#f3f3f3}
+  .pf th{font-size:11px;text-transform:none;letter-spacing:0;color:#111;background:#f3f3f3;font-weight:600}
+  .pf .bar2{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #111;padding-bottom:6px;margin-bottom:10px}
+  .pf .bar2 img{height:72px;width:auto}.pf .ttl{font-size:22px;font-weight:700;letter-spacing:.5px}
+  .pf h3{text-align:center;font-size:15px;margin:14px 0 4px}
+  .pf .boxed{border:1px solid #888;padding:6px 8px;min-height:40px;white-space:pre-wrap}
+  .pf .write td{height:24px}.pf .tall{height:330px}.pf .no{font-size:18px;font-weight:700;color:#c0392b}
+  .pf .small{font-size:10px;color:#333}.pf .sig td{height:30px}
+  .cover{font-family:Cambria,Georgia,"Times New Roman",serif;text-align:center;color:#111;background:#fff;padding-top:10mm}
+  .cover img{height:110px;width:auto;margin-bottom:18px}
+  .cover h4{font-size:24px;font-weight:700;margin:22px 0 4px;letter-spacing:.3px}
+  .cover div{font:21px/1.3 "Segoe UI",Arial,sans-serif;text-transform:uppercase}`;
+const stamp = d => d ? fmtDate(d) : "-";
+const COLS4 = `<colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup>`;
+// Blue folder: quote / tender cover sheet
+function coverSheetHtml(q){
+  const site = D.sites?.find(x => x.SiteCode === q.SiteCode);
+  const loc = [site?.Title || q.SiteName, site?.Town].filter(Boolean).join(", ") || q.SiteName || "-";
+  const row = (h, v) => `<h4>${h}</h4><div>${esc(v || "-")}</div>`;
+  return `<div class="cover"><style>${FORM_CSS}</style>${mjeLogoFull()}
+    ${row(q.QuoteType === "Tender" ? "REGISTERED TENDER NO" : "REGISTERED QUOTE NO", q.Title)}
+    ${row("PROJECT NAME", q.ProjectName || String(q.Scope || "").split(/\r?\n/)[0].slice(0, 120))}
+    ${row("CLIENT", q.CustomerName)}${row("LOCATION", loc)}
+    ${row("REGISTERED DATE", stamp(q.QuoteDate))}${row("CLOSING DATE", stamp(q.ClosingDate))}
+    ${row("REGISTERED BY", q.PreparedBy || q.ActionedBy)}${row("INSPECTED BY", q.InspectedBy)}${row("INSPECTION DATE", stamp(q.InspectionDate))}</div>`;
+}
+// Green folder: job card
+function jobCardHtml(j){
+  const site = D.sites?.find(x => x.SiteCode === j.SiteCode), c = D.customers?.find(x => x.CustomerCode === j.CustomerCode);
+  const bk = (D.assign || []).filter(a => a.Title === j.Title && a.AssignStatus !== "Cancelled").sort((a, b) => `${a.AssignDate}${a.StartTime}`.localeCompare(`${b.AssignDate}${b.StartTime}`));
+  const first = bk[0], dur = first && first.StartTime && first.EndTime ? hoursBetween(first.StartTime, first.EndTime) : "";
+  const techs = [...new Set(bk.map(a => a.Technician).filter(Boolean))].join(", ");
+  const L = (a, b) => `<td class="lab">${a}</td><td>${b || ""}</td>`;
+  const left = [["Customer code", esc(j.CustomerCode)], ["Company", esc(j.CustomerName)], ["Contact", esc(j.ContactName || site?.ContactName || "")],
+    ["Site address", [esc(site?.Title || j.SiteName || ""), lines(site?.Address || ""), esc([site?.Town, site?.Province].filter(Boolean).join(", "))].filter(Boolean).join("<br>")],
+    ["Location on site", esc(j.LocationOnSite || "")], ["Site phone", esc(j.ContactPhone || site?.ContactPhone || "")],
+    ["Bill to", esc(String(c?.BillingAddress || "").split(/\r?\n/)[0])], ["Access / hazards", esc([site?.AccessNotes, site?.SiteHazards].filter(Boolean).join(" · "))]];
+  const right = [["Job no.", `<span class="no">${esc(j.Title)}</span>`], ["Date", fmtDate(j.DateReceived)], ["Order number", esc(j.CustomerOrderNo || "")], ["Reference", esc(j.QuoteNo || "")],
+    ["Priority", esc(j.Priority || "")], ["Status", esc(jobState(j, jobFacts()))], ["Service (division)", esc(j.Division || "")], ["Job type", esc(j.JobType || "")],
+    ["Branch", esc(j.Branch || "")], ["Employee", esc(techs || j.Supervisor || "")], ["Due date", fmtDate(j.DueDate)],
+    ["Start / duration", first ? `${fmtDate(first.AssignDate)} ${esc(first.StartTime || "")}${dur ? ` / ${dur} hrs` : ""}` : ""]];
+  const n = Math.max(left.length, right.length);
+  return `<div class="pf"><style>${FORM_CSS}</style>
+    <div class="bar2">${mjeLogoFull()}<span class="ttl">JOB CARD</span></div>
+    <table>${COLS4}${Array.from({ length:n }, (_, i) => `<tr>${left[i] ? L(...left[i]) : "<td></td><td></td>"}${right[i] ? L(...right[i]) : "<td></td><td></td>"}</tr>`).join("")}</table>
+    <h3>Service Requested</h3><div class="boxed">${fmtDate(j.DateReceived)}${j.InstructionMethod ? " · " + esc(j.InstructionMethod) : ""}\n\n${esc(j.Description || "")}</div>
+    <h3>Work Performed</h3><div class="boxed tall"></div></div>`;
+}
+// Service job sheet: the carbon-book layout, with what the office already knows filled in
+function jobSheetHtml(j){
+  const site = D.sites?.find(x => x.SiteCode === j.SiteCode);
+  const blank = (n, cols) => Array.from({ length:n }, () => `<tr>${"<td></td>".repeat(cols)}</tr>`).join("");
+  return `<div class="pf"><style>${FORM_CSS}</style>
+    <div class="bar2">${mjeLogoFull()}<span class="ttl">SERVICE JOB SHEET</span></div>
+    <table>${COLS4}<tr><td class="lab">Customer name</td><td>${esc(j.CustomerName || "")}</td><td class="lab">Date of job</td><td></td></tr>
+      <tr><td class="lab">Address</td><td>${esc([site?.Title || j.SiteName, site?.Address, site?.Town].filter(Boolean).join(", "))}</td><td class="lab">Contact name</td><td>${esc(j.ContactName || site?.ContactName || "")}</td></tr>
+      <tr><td class="lab">Client PO no.</td><td>${esc(j.CustomerOrderNo || "")}</td><td class="lab">Phone no.</td><td>${esc(j.ContactPhone || site?.ContactPhone || "")}</td></tr>
+      <tr><td class="lab">Job no.</td><td class="no">${esc(j.Title)}</td><td class="lab">Job sheet no.</td><td></td></tr>
+      <tr><td colspan="4" class="small">No works will be completed without client PO or written authorisation.</td></tr>
+      <tr><td class="lab">Service type</td><td colspan="3">${esc([j.Division, j.JobType].filter(Boolean).join(" · "))}</td></tr>
+      <tr><td class="lab">Work to do</td><td colspan="3">${lines(j.Description || "")}</td></tr>
+      <tr><td class="lab">Scope of work completed</td><td colspan="3" style="height:110px"></td></tr></table>
+    <h3>Work hours</h3><table class="write"><tr><th>Date</th><th>Name</th><th>Start time</th><th>End time</th></tr>${blank(4, 4)}</table>
+    <h3>Materials used</h3><table class="write"><tr><th style="width:25%">Material type</th><th>Description</th><th style="width:12%">Qty</th></tr>${blank(5, 3)}</table>
+    <h3>Material on back order</h3><table class="write"><tr><th style="width:25%">Material type</th><th>Description</th><th style="width:12%">Qty</th></tr>${blank(2, 3)}</table>
+    <h3>Job completion</h3><table class="sig">${COLS4}<tr><td class="lab">Electrician's name</td><td></td><td class="lab">Signature</td><td></td></tr><tr><td class="lab">Supervisor's name</td><td></td><td class="lab">Signature</td><td></td></tr></table>
+    <h3>Customer acknowledgement</h3><p class="small">${esc(setting("JobSheetTerms", "") || DEFAULT_JOBSHEET_TERMS)}</p>
+    <table class="sig">${COLS4}<tr><td class="lab">Company name</td><td colspan="3"></td></tr><tr><td class="lab">Position</td><td></td><td class="lab">Name</td><td></td></tr><tr><td class="lab">Date</td><td></td><td class="lab">Signature</td><td></td></tr></table></div>`;
+}
+// Offered when a quote or job is created: print its folder sheet now (the folder is made up straight away)
+function offerPrint(kind, rec){
+  const q = kind === "quote";
+  openDialog({ cls: q ? "f-quote" : "f-job", kind: q ? "Quotes · Folder" : "Job Centre · Folder", title: q ? `${rec.Title} saved — print the folder cover sheet?` : `Job ${rec.Title} created — print the job card?`,
+    save: q ? "Print cover sheet" : "Print job card",
+    body: `<p>${q ? `The cover sheet goes on the front of the <b>blue folder</b>.` : `The job card goes on the front of the <b>green folder</b>.`} You can print it again any time from the ${q ? "quote" : "job"}'s <b>Print</b> menu.</p>
+      ${q ? "" : `<label class="chk"><span><input type="checkbox" id="alsoSheet"> Also print a service job sheet for the technician</span></label>`}`,
+    onSubmit: async () => { const also = !q && $("#alsoSheet")?.checked; $("#dlg").close();
+      printDoc(q ? coverSheetHtml(rec) : jobCardHtml(rec) + (also ? `<div style="page-break-before:always"></div>` + jobSheetHtml(rec) : ""), q ? `${rec.Title} cover sheet` : `Job card ${rec.Title}`); } });
+}
+// Print menu on a quote / job
+function openPrintMenu(kind, rec){
+  const opts = kind === "quote" ? [["quote", "The quote (as sent to the customer)"], ["cover", "Folder cover sheet (blue folder)"]]
+    : [["card", "Job card (green folder)"], ["sheet", "Service job sheet, filled in with this job"], ["both", "Job card and job sheet"]];
+  openDialog({ cls: kind === "quote" ? "f-quote" : "f-job", kind: kind === "quote" ? "Quotes · Print" : "Job Centre · Print", title:`Print — ${rec.Title}`, save:"Print",
+    body:`<fieldset><legend>What to print</legend>${opts.map(([v, l], i) => `<label class="chk" style="display:block;margin:6px 0"><span><input type="radio" name="what" value="${v}" ${i === 0 ? "checked" : ""}> ${l}</span></label>`).join("")}</fieldset>`,
+    onSubmit: async () => { const w = $("#dlgBody [name=what]:checked").value; $("#dlg").close();
+      if (w === "quote") return printDoc(quotePrintHtml(rec), rec.Title);
+      if (w === "cover") return printDoc(coverSheetHtml(rec), `${rec.Title} cover sheet`);
+      printDoc(w === "card" ? jobCardHtml(rec) : w === "sheet" ? jobSheetHtml(rec) : jobCardHtml(rec) + `<div style="page-break-before:always"></div>` + jobSheetHtml(rec), `Job ${rec.Title}`); } });
+}
+
+/* ---------------- day timesheet: one person, one day ----------------
+   For staff still on the paper Daily Individual Time Sheet: the office keys a whole day in one go,
+   job time against the job (billable), and yard / travel / admin time without one.               */
+S.ts = { tech:"", date:"", rows:[] };
+const TS_CATS = ["Job","Travel","Admin","Training","Leave","Other"];
+const tsBlank = prev => ({ StartTime: prev?.EndTime || "", EndTime:"", Category:"Job", JobNo: prev?.Category === "Job" ? prev.JobNo : "", Billable:"Yes", LabourRateCode:"", Notes:"" });
+function viewTimesheet(){
+  const T = S.ts; T.date ||= TODAY;
+  const have = T.tech ? (D.time || []).filter(t => t.Technician === T.tech && t.EntryDate === T.date).sort((a, b) => String(a.StartTime || "").localeCompare(String(b.StartTime || ""))) : [];
+  if (T.tech && !T.rows.length) T.rows.push(tsBlank(have.at(-1)));
+  const tot = have.reduce((t, r) => t + num(r.ActualHours), 0), outWin = S.win.time && T.date < S.win.time;
+  const rates = activeRates();
+  return `
+  <div class="crumbs"><a href="#/jobs">Job Centre</a> › Day timesheet</div>
+  <div class="bar"><h2>Day timesheet</h2><span class="count">Key in a paper Daily Individual Time Sheet — job time goes on the job, yard / travel / admin time without one</span><span class="grow"></span>
+    ${T.tech ? `<button class="btn" id="tsPrint">Print this day</button>` : ""}</div>
+  ${notSetUp(["time"])}
+  <div class="bar"><select class="f" id="tsTech" aria-label="Person"><option value="">Choose the person…</option>${staffOpts().map(n => `<option ${n === T.tech ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+    <input type="date" class="f" id="tsDate" value="${esc(T.date)}" aria-label="Date"><button class="btn sm" data-tsday="-1">◀ Previous day</button><button class="btn sm" data-tsday="1">Next day ▶</button></div>
+  ${!T.tech ? `<div class="empty">Choose the person whose timesheet you're entering</div>` : `
+  ${outWin ? `<div class="banner hist">Only time since ${fmtDate(S.win.time)} is loaded, so entries already on this day may not show. <button class="btn sm" id="loadAll">Load all history</button></div>` : ""}
+  <div class="card"><h3>Already entered for ${esc(T.tech)} on ${fmtDate(T.date)} <span class="count">${have.length} entr${have.length === 1 ? "y" : "ies"} · ${r2(tot)} h</span></h3>
+  ${have.length ? `<div class="tablewrap"><table><thead><tr><th>Start–finish</th><th>Hours</th><th>Category</th><th>Job</th><th>Bill?</th><th>Source</th><th>Notes</th></tr></thead><tbody>
+    ${have.map(r => `<tr><td class="mono">${esc(r.StartTime || "")}${r.EndTime ? "–" + esc(r.EndTime) : ""}</td><td class="mono">${esc(r.ActualHours ?? "")}</td><td>${esc(r.Category || "")}</td>
+      <td>${r.JobNo ? `<a href="#/jobs/${encodeURIComponent(r.JobNo)}/time">${esc(r.JobNo)}</a> <span class="count">${esc(jobByNo(r.JobNo)?.CustomerName || "")}</span>` : ""}</td><td>${ynPill(r.Billable)}</td><td>${esc(r.Source || "")}</td><td>${esc(r.Notes || "")}</td></tr>`).join("")}
+  </tbody></table></div>` : `<p class="count">Nothing yet.</p>`}</div>
+  <div class="bar" style="margin-top:18px"><h2>Add lines</h2><span class="grow"></span><button class="btn" id="tsAdd">+ Add line</button></div>
+  <div class="tablewrap"><table class="qlines" id="tsGrid"><thead><tr><th>Start</th><th>Finish</th><th>Hours</th><th>Category</th><th>Job no.</th><th>Labour rate</th><th>Bill?</th><th>Location / details</th><th></th></tr></thead><tbody>
+  ${T.rows.map((r, i) => `<tr data-i="${i}">
+    <td><input type="time" data-f="StartTime" value="${esc(r.StartTime)}" aria-label="Start"></td><td><input type="time" data-f="EndTime" value="${esc(r.EndTime)}" aria-label="Finish"></td>
+    <td class="mono lt">${hoursBetween(r.StartTime, r.EndTime) || ""}</td>
+    <td><select data-f="Category" aria-label="Category">${TS_CATS.map(c => `<option ${c === r.Category ? "selected" : ""}>${c}</option>`).join("")}</select></td>
+    <td><input data-f="JobNo" value="${esc(r.JobNo)}" list="dl_tsjobs" class="unit" style="width:100px" aria-label="Job no." ${r.Category === "Job" || r.Category === "Travel" ? "" : "disabled"}></td>
+    <td><select data-f="LabourRateCode" aria-label="Labour rate" ${r.Category === "Job" ? "" : "disabled"}><option value="">${rates[0] ? "Default — " + esc(rates[0].Title) : "—"}</option>${rates.map(x => `<option value="${esc(x.RateCode)}" ${x.RateCode === r.LabourRateCode ? "selected" : ""}>${esc(x.Title)}</option>`).join("")}</select></td>
+    <td><select data-f="Billable" aria-label="Charge the customer?" ${r.Category === "Job" ? "" : "disabled"}><option ${r.Billable === "Yes" ? "selected" : ""}>Yes</option><option ${r.Billable === "No" ? "selected" : ""}>No</option></select></td>
+    <td><input data-f="Notes" value="${esc(r.Notes)}" placeholder="e.g. Dulux — fix leaking water connection" aria-label="Location / details"></td>
+    <td><button class="btn sm" data-tsrm="${i}" aria-label="Remove line">✕</button></td></tr>`).join("")}
+  </tbody></table></div>
+  <datalist id="dl_tsjobs">${(D.jobs || []).filter(j => !["Invoiced","Cancelled"].includes(j.JobStatus)).sort((a, b) => String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true })).slice(0, 600)
+    .map(j => `<option value="${esc(j.Title)}" label="${esc([j.CustomerName, j.SiteName].filter(Boolean).join(" · "))}">`).join("")}</datalist>
+  <div class="bar" style="justify-content:flex-end;margin-top:12px"><span class="count" id="tsTot"></span><button class="btn primary" id="tsSave">Save ${T.rows.length} line${T.rows.length === 1 ? "" : "s"}</button></div>
+  <p class="count">Job lines need a job number and are charged to the customer at the labour rate (billable hours rounded to ${esc(setting("RoundingMinutes", "15"))} minutes). Other categories are kept for the record and never charged. Travel can have a job number too.</p>`}`;
+}
+function bindTimesheet(){
+  if (S.route !== "timesheet") return;
+  const T = S.ts;
+  $("#tsTech").onchange = e => { T.tech = e.target.value; T.rows = []; render(); };
+  $("#tsDate").onchange = e => { if (e.target.value){ T.date = e.target.value; T.rows = []; render(); } };
+  document.querySelectorAll("[data-tsday]").forEach(b => b.onclick = () => { const d = new Date(T.date + "T12:00:00"); d.setDate(d.getDate() + +b.dataset.tsday); T.date = ymd(d); T.rows = []; render(); });
+  if (!T.tech) return;
+  $("#tsPrint").onclick = () => printDoc(dayTimesheetHtml(T.tech, T.date), `Timesheet ${T.tech} ${T.date}`);
+  $("#tsAdd").onclick = () => { T.rows.push(tsBlank(T.rows.at(-1))); render(); document.querySelector("#tsGrid tbody tr:last-child [data-f=StartTime]")?.focus(); };
+  const grid = $("#tsGrid"), sumUp = () => { $("#tsTot").textContent = `New lines: ${r2(T.rows.reduce((t, r) => t + num(hoursBetween(r.StartTime, r.EndTime)), 0))} h`; };
+  grid.oninput = grid.onchange = e => { const tr = e.target.closest("tr[data-i]"), k = e.target.dataset.f; if (!tr || !k) return;
+    const r = T.rows[+tr.dataset.i]; r[k] = e.target.value;
+    if (k === "Category"){ if (r.Category !== "Job"){ r.Billable = "No"; if (r.Category !== "Travel") r.JobNo = ""; } else r.Billable = "Yes"; return render(); }
+    tr.querySelector(".lt").textContent = hoursBetween(r.StartTime, r.EndTime) || ""; sumUp(); };
+  grid.onclick = e => { const b = e.target.closest("[data-tsrm]"); if (b){ T.rows.splice(+b.dataset.tsrm, 1); render(); } };
+  sumUp();
+  $("#tsSave").onclick = saveTimesheet;
+}
+async function saveTimesheet(){
+  const T = S.ts, rows = T.rows.filter(r => r.StartTime || r.EndTime || r.JobNo || r.Notes);
+  if (!rows.length) return toast("Nothing to save — fill in a line first");
+  for (const [i, r] of rows.entries()){
+    const h = hoursBetween(r.StartTime, r.EndTime);
+    if (!r.StartTime || !r.EndTime || !(h > 0)) return toast(`Line ${i + 1}: enter a start and a finish time (finish after start)`);
+    if (r.Category === "Job" && !r.JobNo) return toast(`Line ${i + 1}: job time needs a job number — or choose Admin, Travel…`);
+    if (r.JobNo && D.jobs && !jobByNo(r.JobNo.trim())) return toast(`Line ${i + 1}: there's no job ${r.JobNo}`);
+  }
+  const all = [...(D.time || []).filter(t => t.Technician === T.tech && t.EntryDate === T.date && t.StartTime && t.EndTime), ...rows];
+  const clash = all.find((a, i) => all.some((b, k) => k > i && a.StartTime < b.EndTime && b.StartTime < a.EndTime));
+  if (clash && S.ts.warned !== T.tech + T.date){ S.ts.warned = T.tech + T.date; return toast(`Two lines overlap (one starts ${clash.StartTime}) — check the times, or click Save again to keep them`); }
+  const rate0 = activeRates()[0]?.RateCode || "", btn = $("#tsSave"); btn.disabled = true;
+  let n = 0;
+  try {
+    for (const r of rows){
+      const h = hoursBetween(r.StartTime, r.EndTime), job = r.Category === "Job" || r.Category === "Travel" ? r.JobNo.trim() : "", bill = r.Category === "Job" && r.Billable !== "No";
+      await saveRow("time", null, { Title:`${T.tech} — ${T.date}`, Technician:T.tech, EntryDate:T.date, StartTime:r.StartTime, EndTime:r.EndTime, Category:r.Category, JobNo: job || null,
+        ActualHours:h, BillableHours: bill ? roundBillable(h) : 0, Billable: bill ? "Yes" : "No", LabourRateCode: r.Category === "Job" ? (r.LabourRateCode || rate0 || null) : null,
+        Source:"Office", Notes: r.Notes || null, ClientRef: newRef() });
+      T.rows.splice(T.rows.indexOf(r), 1); n++;
+    }
+    T.rows = []; render(); toast(`Saved ${n} line${n === 1 ? "" : "s"} for ${T.tech}`);
+  } catch(e){ toast((isForbidden(e) ? NO_PERMISSION : "Save stopped: " + e.message) + (n ? ` — ${n} line(s) saved; the rest are still here` : "")); render(); }
+}
+// Printed daily timesheet for one person — signed by the employee and supervisor if MJE still wants a paper record
+function dayTimesheetHtml(tech, date){
+  const rows = (D.time || []).filter(t => t.Technician === tech && t.EntryDate === date).sort((a, b) => String(a.StartTime || "").localeCompare(String(b.StartTime || "")));
+  const tot = rows.reduce((t, r) => t + num(r.ActualHours), 0), day = new Date(date + "T12:00:00").toLocaleDateString("en-AU", { weekday:"long" });
+  return `<div class="pf"><style>${FORM_CSS}</style><div class="bar2">${mjeLogoFull()}<span class="ttl">DAILY INDIVIDUAL TIME SHEET</span></div>
+    <table><thead><tr><th>Time in</th><th>Time out</th><th>Hours</th><th>Job no.</th><th>Location</th><th>Job details / scope of works</th></tr></thead><tbody>
+    ${rows.map(r => { const j = r.JobNo ? jobByNo(r.JobNo) : null; return `<tr><td>${esc(r.StartTime || "")}</td><td>${esc(r.EndTime || "")}</td><td>${esc(r.ActualHours ?? "")}</td><td>${esc(r.JobNo || "")}</td>
+      <td>${esc(j ? [j.CustomerName, j.SiteName].filter(Boolean).join(" · ") : r.Category || "")}</td><td>${esc(r.Notes || (j ? String(j.Description || "").split(/\r?\n/)[0].slice(0, 90) : ""))}</td></tr>`; }).join("")}
+    <tr><td colspan="2"><b>Total</b></td><td><b>${r2(tot)}</b></td><td colspan="3"></td></tr></tbody></table>
+    <table class="sig" style="margin-top:14px">${COLS4}<tr><td class="lab">Employee name</td><td>${esc(tech)}</td><td class="lab">Day</td><td>${esc(day)}</td></tr>
+      <tr><td class="lab">Employee signature</td><td></td><td class="lab">Date</td><td>${fmtDate(date)}</td></tr><tr><td class="lab">Supervisor signature</td><td></td><td class="lab">Date</td><td></td></tr></table>
+    <p class="small">Printed from the ${esc(BRAND.COMPANY)} Service Hub ${fmtDate(TODAY)} — the times above are already recorded against the jobs.</p></div>`;
 }
 
 /* =====================================================================
@@ -2449,7 +2656,8 @@ const COMPANY_KEYS = [
   ["LoadDays","Days of history screens and phones read (time, materials, notes, bookings, invoices — default 120)","number",1],
   ["QuoteTerms","Standard quote terms (copied onto each new quote; can be changed per quote)","textarea",3],
   ["POMailbox","Shared purchasing mailbox — purchase orders are emailed from it (blank = each person's own mailbox)","email",2],
-  ["POTerms","Terms printed on purchase orders","textarea",3] ];
+  ["POTerms","Terms printed on purchase orders","textarea",3],
+  ["JobSheetTerms","Customer acknowledgement printed on the service job sheet (blank = the standard MJE wording)","textarea",3] ];
 // Delivery address printed on purchase orders: one per branch, plus a default
 const poAddressKeys = () => [["PODeliverTo","Default delivery address on purchase orders","textarea",3], ...branches().map(b => [brKey(b), `Delivery address on purchase orders — ${b}`,"textarea",3])];
 const isAdmin = () => S.role === "Admin";
@@ -2618,7 +2826,7 @@ function viewJobs(){
   const open = jobs.filter(isOpen), ready = jobs.filter(j => j._st === "Completed"), readyVal = ready.reduce((t, j) => t + unbilledValue(j).value, 0);
   const tile = (st, label, v, sub, alert) => `<div class="card kpi k-job ${alert ? "alert" : ""}" role="button" tabindex="0" data-jf="${st}"><div class="l">${label}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
   return `
-  <div class="bar"><h2>Job Centre</h2><span class="grow"></span><button class="btn" id="refresh">↻ Refresh</button><button class="btn primary" data-newjob="|">+ New job</button></div>
+  <div class="bar"><h2>Job Centre</h2><span class="grow"></span><a class="btn" href="#/timesheet">Day timesheet</a><button class="btn" id="refresh">↻ Refresh</button><button class="btn primary" data-newjob="|">+ New job</button></div>
   ${notSetUp(ROUTES.jobs.lists)}
   <div class="grid kpis">
     ${tile("open", "Open jobs", open.length, `${open.filter(j => j._st === "In Progress").length} in progress`)}
@@ -2700,7 +2908,7 @@ function viewJob(){
   ${S.jobLoading.has(no) ? `<div class="banner hist">Reading this job's full history…</div>` : ""}
   <div class="crumbs"><a href="#/jobs">Job Centre</a> › ${esc(j.Title)}</div>
   <div class="bar"><h2>${esc(j.Title)}</h2>${jobPill(st)}${priPill(j.Priority)}<span class="count">${esc(j.CustomerName || "")}${j.SiteName ? " · " + esc(j.SiteName) : ""}</span><span class="grow"></span>
-    ${st !== "Invoiced" ? `<button class="btn" data-jact="edit">Edit details</button><button class="btn" data-jact="update">Latest update</button>` : ""}
+    <button class="btn" data-jact="print">Print…</button>${st !== "Invoiced" ? `<button class="btn" data-jact="edit">Edit details</button><button class="btn" data-jact="update">Latest update</button>` : ""}
     ${st === "On Hold" ? `<button class="btn" data-jact="resume">Resume</button>` : st === "Cancelled" ? `<button class="btn" data-jact="resume">Reopen</button>` : !CLOSED.includes(st) ? `<button class="btn" data-jact="hold">Put on hold</button><button class="btn danger" data-jact="cancel">Cancel job</button>` : ""}
     ${mjeAppAllowed("safety") ? `<a class="btn" href="${esc(incidentLink(j, site))}" target="_blank" rel="noopener">⚠ Log an incident</a>` : ""}</div>
   ${st === "On Hold" && j.OnHoldReason ? `<div class="banner">On hold: ${esc(j.OnHoldReason)}${j.PartsOnOrder ? ` · parts on order: ${esc(j.PartsOnOrder)}${j.PartsSupplier ? " (" + esc(j.PartsSupplier) + ")" : ""}${j.PartsETA ? ", ETA " + fmtDate(j.PartsETA) : ""}` : ""}</div>` : ""}
@@ -2949,7 +3157,7 @@ function jobInvoice(j, st){
   const tUn = D.time.filter(t => t.JobNo === j.Title && t.Billable !== "No" && !t.InvoiceNo), mUn = D.mat.filter(m => m.Title === j.Title && m.Billable !== "No" && !m.InvoiceNo);
   return `<div class="grid two">
     <div class="card"><h3>Sign-off</h3>${comps.length ? `<ul class="list">${comps.map(c => `<li><span class="id mono">${fmtDate(c.CompletedDate)}<br><span class="count">${esc(c.CompletedTime || "")}</span></span>
-      <span class="x"><b>${esc(c.Technician || "")}</b> — ${c.CustomerNotPresent === "Yes" ? `customer not present: ${esc(c.NotPresentReason || "no reason given")}` : `signed by ${esc(c.SignedByName || "—")}`}${c.SignatureFile ? " ✍" : ""}
+      <span class="x"><b>${esc(c.Technician || "")}</b> — ${c.CustomerNotPresent === "Yes" ? `customer not present: ${esc(c.NotPresentReason || "no reason given")}` : `signed by ${esc(c.SignedByName || "—")}`}${c.SignatureFile ? " ✍" : ""}${c.JobSheetNo ? ` · paper job sheet ${esc(c.JobSheetNo)}` : ""}
       ${c.WorkSummary ? `<br><span class="count">${esc(c.WorkSummary)}</span>` : ""}${c.FollowUpRequired === "Yes" ? `<br><span class="flag">Follow-up needed: ${esc(c.FollowUpNotes || "")}</span>` : ""}</span>
       <span>${c.ReviewStatus === "Returned" ? `<span class="pill p-crit">Returned</span>` : c.ReviewStatus === "Accepted" ? `<span class="pill p-ok">Accepted</span>`
         : `<span class="pill p-info">Submitted</span><br><button class="btn sm" data-review="${esc(c.id)}|Accepted">Accept</button> <button class="btn sm danger" data-review="${esc(c.id)}|Returned">Return</button>`}</span></li>`).join("")}</ul>`
@@ -2974,7 +3182,7 @@ function openCompletion(j){
   openDialog({ cls:"f-comp", kind:"Job Centre · Sign-off", title:`Record sign-off for ${j.Title}`, save:"Record sign-off",
     body: formBody([["Sign-off", [["Technician","Technician who did the work","select",{req:1,w:2,opts:staffOpts}], ["CompletedDate","Completed","date",{req:1}], ["CompletedTime","Time","time"],
       ["SignedByName","Signed by (customer's name)","text",{w:2}], ["CustomerNotPresent","Customer not present?","select",{opts:["No","Yes"]}], ["NotPresentReason","Reason the customer couldn't sign","text",{w:3}],
-      ["WorkSummary","Work done","textarea",{w:3}], ["FollowUpRequired","Follow-up needed?","select",{opts:["No","Yes"]}], ["FollowUpNotes","Follow-up notes","text",{w:2}] ]]],
+      ["WorkSummary","Work done","textarea",{w:3}], ["FollowUpRequired","Follow-up needed?","select",{opts:["No","Yes"]}], ["FollowUpNotes","Follow-up notes","text",{w:2}], ["JobSheetNo","Paper job sheet no. (if done on paper)","text"] ]]],
       { CompletedDate: ymd(now), CompletedTime: hhmm(now), CustomerNotPresent:"No", FollowUpRequired:"No", Technician: D.assign.filter(a => a.Title === j.Title && a.AssignStatus !== "Cancelled").slice(-1)[0]?.Technician || "" }),
     onSubmit: async () => {
       const f = readForm();
@@ -3000,7 +3208,7 @@ function bindJobs(){
   document.querySelectorAll("[data-qs]").forEach(s => s.onchange = () => { const j = jobByNo(s.dataset.qs); if (j && s.value) setJobStatus(j, s.value); s.value = ""; });
   const j = jobByNo(jobNoOf()); if (!j || !S.param) return;
   document.querySelectorAll("[data-jact]").forEach(b => b.onclick = () => ({ edit:() => openForm("job", j), update:() => openUpdate(j), hold:() => setJobStatus(j, "hold"), cancel:() => setJobStatus(j, "cancel"), resume:() => setJobStatus(j, "resume"),
-    book:() => openBooking(j), time:() => openTime(j), mat:() => openMaterial(j), note:() => openNote(j), complete:() => openCompletion(j) })[b.dataset.jact]());
+    print:() => openPrintMenu("job", j), book:() => openBooking(j), time:() => openTime(j), mat:() => openMaterial(j), note:() => openNote(j), complete:() => openCompletion(j) })[b.dataset.jact]());
   const rowOpen = (attr, list, fn) => document.querySelectorAll(`[${attr}]`).forEach(r => { const go = () => { const x = D[list].find(i => String(i.id) === r.getAttribute(attr)); if (x) fn(x); };
     r.onclick = go; r.onkeydown = e => { if (e.key === "Enter") go(); }; });
   rowOpen("data-book", "assign", a => openBooking(j, a)); rowOpen("data-time", "time", r => openTime(j, r)); rowOpen("data-mat", "mat", m => openMaterial(j, m)); rowOpen("data-resp", "resp", showResponse);
