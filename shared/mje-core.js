@@ -127,11 +127,22 @@ async function graph(path, opts = {}){
 }
 async function getSite(){ siteId = (await graph(`/sites/${CONFIG.SP_HOST}:${CONFIG.SITE_PATH}`)).id; }
 
-// Every item of a SharePoint list, following @odata.nextLink page by page
-async function listItems(listName){
-  let url = `/sites/${siteId}/lists/${listName}/items?expand=fields&$top=999`, out = [];
-  while (url){ const j = await graph(url); out.push(...j.value.map(i => ({ id:i.id, ...i.fields }))); url = j["@odata.nextLink"]; }
-  return out;
+// Every item of a SharePoint list, following @odata.nextLink page by page.
+// Optional OData filter on fields (e.g. "fields/EntryDate ge '2026-08-01'"), best on an indexed column.
+// If SharePoint refuses the filter (e.g. column not indexed on a big list), the whole list is read instead;
+// the result then has .filtered = false, so the caller knows it got everything.
+async function listItems(listName, filter){
+  const base = `/sites/${siteId}/lists/${listName}/items?expand=fields&$top=999`;
+  const read = async (url, opts) => { const out = []; while (url){ const j = await graph(url, opts); out.push(...j.value.map(i => ({ id:i.id, ...i.fields }))); url = j["@odata.nextLink"]; } return out; };
+  if (!filter) return read(base);
+  try {
+    const out = await read(`${base}&$filter=${encodeURIComponent(filter)}`, { headers:{ Prefer:"HonorNonIndexedQueriesWarningMayFailRandomly" } });
+    out.filtered = true; return out;
+  } catch(e){
+    if (isMissingList(e) || isForbidden(e) || e.status === 401) throw e;
+    console.warn(`Filtered read of ${listName} refused (${e.message}) — reading the whole list`);
+    const out = await read(base); out.filtered = false; return out;
+  }
 }
 // True when Graph says the list doesn't exist (not set up yet) — apps show a "not set up" message instead of failing
 const isMissingList = e => e.status === 404 || /not (be )?found|does not exist/i.test(e.message);
