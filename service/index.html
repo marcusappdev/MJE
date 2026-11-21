@@ -179,7 +179,7 @@ const CONFIG = {
     jobs:"Jobs", assign:"JobAssignments", time:"TimeEntries", mat:"JobMaterials", notes:"JobNotes",
     comp:"JobCompletions", chk:"Checklists", resp:"ChecklistResponses", files:"JobFiles",
     inv:"Invoices", iline:"InvoiceLines", pay:"InvoicePayments", sync:"MyobSync",
-    rates:"LabourRates", settings:"ServiceSettings", numbers:"ServiceNumbers", supp:"Suppliers", prod:"Products",
+    rates:"LabourRates", settings:"ServiceSettings", numbers:"ServiceNumbers", supp:"Suppliers", prod:"Products", contacts:"Contacts",
     // Safety Hub lists the Service Hub reads
     staff:"Staff", trn:"Training", course:"Courses", tt:"TestTag", risk:"Risks", inc:"Incidents",
   }),
@@ -192,19 +192,19 @@ const LIST_INFO = {
   customers:"Customers (billing entities)", sites:"Service sites", assets:"Customer equipment", quotes:"Quotes", qlines:"Quote lines",
   jobs:"Jobs", assign:"Technician bookings", time:"Time entries", mat:"Job materials", notes:"Job notes & photos", comp:"Job completions",
   chk:"Checklist templates", resp:"Checklist answers", files:"Job files library", inv:"Invoices", iline:"Invoice lines", pay:"Payments",
-  sync:"MYOB sync queue", rates:"Labour rates", settings:"Service settings", numbers:"Number counters", supp:"Suppliers", prod:"Products (stock catalogue)",
+  sync:"MYOB sync queue", rates:"Labour rates", settings:"Service settings", numbers:"Number counters", supp:"Suppliers", prod:"Products (stock catalogue)", contacts:"Customer contacts",
   staff:"Staff (Safety Hub)", trn:"Training records (Safety Hub)", course:"Courses (Safety Hub)", tt:"Test & tag (Safety Hub)",
   risk:"Risk registers (Safety Hub)", inc:"Incidents (Safety Hub)" };
 const SAFETY_KEYS = ["staff","trn","course","tt","risk","inc"];
 
 /* ---------------- screens & who sees them ---------------- */
 const OFFICE = ["Admin","Office"], TECH = ["Technician"];
-const CUST_LOAD = ["customers","sites","assets","jobs","quotes","sync","settings","comp","time","assign"];
+const CUST_LOAD = ["customers","sites","assets","jobs","quotes","sync","settings","comp","time","assign","contacts"];
 const ROUTES = {
   dash:      { label:"Dashboard",         roles:OFFICE, lists:["jobs","assign","quotes","inv","comp","time","mat","rates"], load:["jobs","assign","quotes","inv","comp","time","mat","rates","settings"], step:"Dashboard — jobs by status, today's schedule, unscheduled jobs, quotes pending approval, completed-not-invoiced value, overdue jobs" },
   customers: { label:"Customers & Sites", roles:OFFICE, lists:["customers","sites","assets"], load:CUST_LOAD, step:"Customers & Sites — search, create and edit; each site shows its equipment and full job history" },
-  quotes:    { label:"Quotes",            roles:OFFICE, lists:["quotes","qlines","rates","numbers"], load:["quotes","qlines","rates","settings","customers","sites","jobs","prod"], step:"Quotes — labour and parts lines, GST, print/PDF, email, follow-up list, Convert to Job" },
-  jobs:      { label:"Job Centre",        roles:OFFICE, lists:["jobs","assign","time","mat","notes","comp","resp","numbers"], load:["jobs","assign","time","mat","notes","comp","resp","chk","inv","customers","sites","assets","rates","settings","quotes","trn","tt","inc","supp","prod"], step:"Job Centre — filterable job grid and the job page (Details, Schedule, Time, Materials, Notes & Photos, Checklists, Safety, Invoice)" },
+  quotes:    { label:"Quotes",            roles:OFFICE, lists:["quotes","qlines","rates","numbers"], load:["quotes","qlines","rates","settings","customers","sites","jobs","prod","contacts"], step:"Quotes — labour and parts lines, GST, print/PDF, email, follow-up list, Convert to Job" },
+  jobs:      { label:"Job Centre",        roles:OFFICE, lists:["jobs","assign","time","mat","notes","comp","resp","numbers"], load:["jobs","assign","time","mat","notes","comp","resp","chk","inv","customers","sites","assets","rates","settings","quotes","trn","tt","inc","supp","prod","contacts"], step:"Job Centre — filterable job grid and the job page (Details, Schedule, Time, Materials, Notes & Photos, Checklists, Safety, Invoice)" },
   schedule:  { label:"Scheduler",         roles:OFFICE, lists:["jobs","assign","staff"], load:["jobs","assign","time","comp","customers","sites","settings","trn","tt"], step:"Scheduler — one row per technician, day and week views, drag and drop, clash warnings" },
   invoices:  { label:"Invoicing",         roles:OFFICE, lists:["inv","iline","pay","sync","numbers"], step:"Invoicing — invoices from completed jobs, deposits, progress, credit notes, payments, Send to MYOB" },
   settings:  { label:"Settings",          roles:OFFICE, lists:["settings","rates","numbers","chk"], load:["settings","rates"], step:"" },
@@ -1133,6 +1133,35 @@ function suggestCode(name, used){
   return stem + Date.now().toString().slice(-4);
 }
 let FORM_CUST = "", FORM_SITE = "";
+/* ---------------- customer contacts (MJE_Contacts) ----------------
+   Several people per customer — site managers, accounts, PO approvers. A contact with a site belongs to that site;
+   without one, to the customer as a whole. Job and quote forms suggest the customer's contacts for "contact".   */
+const CONTACT_ROLES = ["Site contact","Accounts","PO approver","Manager","Owner","Facilities / maintenance","Other"];
+const custContacts = (cust, site) => (D.contacts || []).filter(x => x.CustomerCode === cust && x.ContactStatus !== "Inactive")
+  .sort((a, b) => ((site && a.SiteCode === site) ? 0 : a.SiteCode ? 2 : 1) - ((site && b.SiteCode === site) ? 0 : b.SiteCode ? 2 : 1) || String(a.Title).localeCompare(String(b.Title)));
+function contactList(){
+  let dl = document.getElementById("dl_contacts");
+  if (!dl){ dl = document.createElement("datalist"); dl.id = "dl_contacts"; document.body.appendChild(dl); }
+  const site = $("[name=SiteCode]")?.value || "";
+  dl.innerHTML = custContacts(FORM_CUST, site).map(x => `<option value="${esc(x.Title)}" label="${esc([x.Role, x.SiteCode && x.SiteCode !== site ? "other site" : "", x.Mobile || x.Phone].filter(Boolean).join(" · "))}">`).join("");
+}
+function bindContactPick(){
+  const n = $("[name=ContactName]"); if (!n || !D.contacts) return;
+  n.setAttribute("list", "dl_contacts"); n.setAttribute("autocomplete", "off"); contactList();
+  n.addEventListener("change", () => { const x = custContacts(FORM_CUST).find(c => norm(c.Title) === norm(n.value)); if (!x) return;
+    const ph = $("[name=ContactPhone]"), em = $("[name=ContactEmail]");
+    if (ph && (x.Mobile || x.Phone)) ph.value = x.Mobile || x.Phone;
+    if (em && x.Email) em.value = x.Email; });
+}
+function contactsTable(rows, cust, site){
+  return `<div class="bar" style="margin-top:22px"><h2>Contacts</h2><span class="count">${rows.length}</span><span class="grow"></span><button class="btn" data-newcont="${esc(cust)}|${esc(site || "")}">+ Add contact</button></div>
+  <div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th>${site ? "" : "<th>Site</th>"}<th>Phone</th><th>Mobile</th><th>Email</th></tr></thead><tbody>
+  ${rows.map(x => `<tr data-edit="cont|${esc(x.id)}" tabindex="0"><td><b>${esc(x.Title)}</b>${x.ContactStatus === "Inactive" ? ` <span class="pill p-grey">Inactive</span>` : ""}</td><td>${esc(x.Role || "")}</td>
+    ${site ? "" : `<td>${x.SiteCode ? esc(D.sites.find(y => y.SiteCode === x.SiteCode)?.Title || x.SiteCode) : `<span class="count">all sites</span>`}</td>`}
+    <td>${x.Phone ? `<a href="tel:${esc(x.Phone)}">${esc(x.Phone)}</a>` : ""}</td><td>${x.Mobile ? `<a href="tel:${esc(x.Mobile)}">${esc(x.Mobile)}</a>` : ""}</td>
+    <td>${x.Email ? `<a href="mailto:${esc(x.Email)}">${esc(x.Email)}</a>` : ""}</td></tr>`).join("")}
+  </tbody></table>${rows.length ? "" : `<div class="empty">No contacts yet — add site managers, accounts and PO approvers with <b>+ Add contact</b></div>`}</div>`;
+}
 function assetChecks(site, valueStr){
   if (!site) return `<span class="count">Pick a site to choose its equipment</span>`;
   const sel = String(valueStr || "").split(/[;,]/).map(x => x.trim()).filter(Boolean), list = (D.assets || []).filter(a => a.SiteCode === site && (a.AssetStatus !== "Decommissioned" || sel.includes(a.Title)));
@@ -1180,6 +1209,11 @@ const FORMS = {
       ["SupplierStatus","Status","select",{opts:["Active","Inactive"]}] ]],
     ["Contact", [["ContactName","Contact name","text"], ["Phone","Phone","tel"], ["Mobile","Mobile","tel"], ["Email","Email","email",{w:2}], ["Address","Address","textarea",{w:3}] ]],
     ["Notes", [["Notes","What we buy from them, account no., notes","textarea",{w:3}]]] ] },
+  cont: { list:"contacts", name:"Contact", kind:"Customers & Sites · Contact", code:"Title", manualCode:true, sections:[
+    ["Contact", [["Title","Name","text",{req:1,w:2}], ["Role","Role","text",{list:() => CONTACT_ROLES}], ["CustomerCode","Customer","select",{req:1,w:2,opts:custOpts}],
+      ["SiteCode","Site (blank = the customer's head office)","select",{opts:() => siteOpts(FORM_CUST)}] ]],
+    ["How to reach them", [["Phone","Phone","tel"], ["Mobile","Mobile","tel"], ["Email","Email","email"], ["ContactStatus","Status","select",{opts:["Active","Inactive"]}] ]],
+    ["Notes", [["Notes","Notes","textarea",{w:3}]]] ] },
   prod: { list:"prod", name:"Product", kind:"Products · Product", code:"ProductCode", manualCode:true, sections:[
     ["Product", [["Title","Description (as it appears on jobs and quotes)","text",{req:1,w:2}], ["ProductCode","Item code","text",{req:1,roEdit:1}],
       ["Category","Category","text",{list:() => [...new Set((D.prod || []).map(p => p.Category).filter(Boolean))].sort()}], ["Unit","Unit","text"], ["Manufacturer","Make / manufacturer","text"] ]],
@@ -1214,6 +1248,7 @@ function formDefaults(kind){
   if (kind === "cust") return { CustomerType:"Commercial", CustomerStatus:"Active", CODOnly:"No", PaymentTermsDays: num(setting("PaymentTermsDays", 30)) };
   if (kind === "supp") return { SupplierStatus:"Active", Branch: brDefault() };
   if (kind === "prod") return { ProductStatus:"Active", Unit:"each" };
+  if (kind === "cont") return { ContactStatus:"Active" };
   if (kind === "site") return { SiteStatus:"Active", Province:"National Capital District" };
   if (kind === "quote") return { Branch: brDefault(), QuoteType:"Quote", QuoteDate:TODAY, ValidUntil: addDays(TODAY, num(setting("QuoteValidityDays", 30))), JobType:"Service / Break-fix", Terms: setting("QuoteTerms", ""), ActionedBy: S.me?.Title || "" };
   if (kind === "rate") return { RateUnit:"Hour", RateStatus:"Active" };
@@ -1234,11 +1269,15 @@ function openForm(kind, item, prefill = {}){
 </fieldset>`).join("")
     + (item || F.manualCode ? "" : F.codeStyle ? `<p class="count">Type the ${F.name.toLowerCase()}'s TSM / MYOB code, or leave it blank and a code is made from the name (e.g. ABLEC001).</p>`
       : `<p class="count">The ${F.name.toLowerCase()} ${["quote","job"].includes(kind) ? "number" : "code"} is given when you save.</p>`);
+  if (kind === "cont") $("[name=CustomerCode]").onchange = e => { FORM_CUST = e.target.value;
+    $("[name=SiteCode]").innerHTML = `<option value=""></option>` + siteOpts(FORM_CUST).map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(""); };
+  if (kind === "job" || kind === "quote") bindContactPick();
   if (kind === "quote") $("[name=CustomerCode]").onchange = e => {
     FORM_CUST = e.target.value; const c = D.customers.find(x => x.CustomerCode === FORM_CUST);
     $("[name=SiteCode]").innerHTML = `<option value=""></option>` + siteOpts(FORM_CUST).map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
     if (c && !$("[name=ContactName]").value) $("[name=ContactName]").value = c.AccountsContact || "";
     if (c && !$("[name=ContactEmail]").value) $("[name=ContactEmail]").value = c.Email || "";
+    contactList();
   };
   if ($("#gpsHere")) $("#gpsHere").onclick = () => {
     if (!navigator.geolocation) return toast("This device can't share its location");
@@ -1254,12 +1293,12 @@ function bindJobForm(){
   $("[name=CustomerCode]").onchange = e => { FORM_CUST = e.target.value; FORM_SITE = "";
     const cu = D.customers.find(x => x.CustomerCode === FORM_CUST); if (cu && $("[name=COD]")) $("[name=COD]").value = cu.CODOnly === "Yes" ? "Yes" : "No";
     $("[name=SiteCode]").innerHTML = `<option value=""></option>` + siteOpts(FORM_CUST).map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
-    $("#assetPick").innerHTML = assetChecks("", ""); syncAssets(); };
+    $("#assetPick").innerHTML = assetChecks("", ""); syncAssets(); contactList(); };
   $("[name=SiteCode]").onchange = e => { FORM_SITE = e.target.value; const x = D.sites.find(r => r.SiteCode === FORM_SITE);
     if (x && !$("[name=ContactName]").value) $("[name=ContactName]").value = x.ContactName || "";
     if (x && !$("[name=ContactPhone]").value) $("[name=ContactPhone]").value = x.ContactPhone || "";
     if (x && $("[name=Branch]") && !$("[name=Branch]").value && x.Branch) $("[name=Branch]").value = x.Branch;
-    $("#assetPick").innerHTML = assetChecks(FORM_SITE, ""); syncAssets(); };
+    $("#assetPick").innerHTML = assetChecks(FORM_SITE, ""); syncAssets(); contactList(); };
   $("[name=JobType]").onchange = $("[name=Division]").onchange = () => { const rc = $("[name=RequiredChecklists]"); if (!EDIT.item && !rc.dataset.touched) rc.value = jobChecklistDefault($("[name=JobType]").value, $("[name=Division]").value); };
   $("[name=RequiredChecklists]").oninput = e => e.target.dataset.touched = "1";
 }
@@ -1346,7 +1385,7 @@ async function submitForm(e){
     $("#dlg").close();
     toast(`Saved ${saved[F.code]}${F.code === "Title" ? "" : " · " + saved.Title}`);
     if (!item && kind === "cust") go("customers", saved.CustomerCode);
-    else if (kind === "supp" || kind === "prod") render();
+    else if (kind === "supp" || kind === "prod" || kind === "cont") render();
     else if (!item && kind === "quote") go("quotes", saved.Title);
     else if (!item && kind === "job") go("jobs", saved.Title);
     else if (!item && kind === "site" && S.route !== "customers") go("site", saved.SiteCode);
@@ -1404,9 +1443,10 @@ function viewCustomers(){
   const openJobs = new Map(); D.jobs.forEach(j => { if (!CLOSED.includes(jobState(j, facts))) openJobs.set(j.CustomerCode, (openJobs.get(j.CustomerCode) || 0) + 1); });
   const siteCount = new Map(); D.sites.forEach(x => siteCount.set(x.CustomerCode, (siteCount.get(x.CustomerCode) || 0) + 1));
   const sitesText = new Map(); D.sites.forEach(x => sitesText.set(x.CustomerCode, (sitesText.get(x.CustomerCode) || "") + " " + [x.Title, x.SiteCode, x.Town, x.Address].join(" ")));
+  const contactsText = new Map(); (D.contacts || []).forEach(x => contactsText.set(x.CustomerCode, (contactsText.get(x.CustomerCode) || "") + " " + [x.Title, x.Email, x.Mobile, x.Phone].join(" ")));
   const rows = sortBy(D.customers.map(c => ({ ...c, _sites: siteCount.get(c.CustomerCode) || 0, _open: openJobs.get(c.CustomerCode) || 0, _myob: myobState(c).label }))
     .filter(c => (f.status === "all" || (f.status === "live" ? c.CustomerStatus !== "Inactive" : c.CustomerStatus === f.status)) &&
-      (!q || norm([c.Title, c.CustomerCode, c.TradingName, c.Phone, c.Email, c.AccountsContact, sitesText.get(c.CustomerCode)].join(" ")).includes(q))), f.sort);
+      (!q || norm([c.Title, c.CustomerCode, c.TradingName, c.Phone, c.Email, c.AccountsContact, sitesText.get(c.CustomerCode), contactsText.get(c.CustomerCode)].join(" ")).includes(q))), f.sort);
   const active = D.customers.filter(c => c.CustomerStatus !== "Inactive");
   const notLinked = active.filter(c => !c.MyobCardUID).length;
   const chips = [["live","Active & on hold"],["Active","Active"],["On hold","On hold"],["Inactive","Inactive"],["all","All"]]
@@ -1490,6 +1530,7 @@ function viewCustomer(code){
     <td class="mono">${D.assets.filter(a => a.SiteCode === x.SiteCode && a.AssetStatus !== "Decommissioned").length}</td><td class="mono">${openBySite.get(x.SiteCode) || ""}</td>
     <td>${x.SiteStatus === "Inactive" ? `<span class="pill p-grey">Inactive</span>` : `<span class="pill p-ok">Active</span>`}</td></tr>`).join("")}
   </tbody></table>${sites.length ? "" : `<div class="empty">No sites yet — add the places ${esc(BRAND.SHORT)} works for this customer with <b>+ New site</b></div>`}</div>
+  ${D.contacts ? contactsTable((D.contacts || []).filter(x => x.CustomerCode === code).sort((a, b) => (a.ContactStatus === "Inactive") - (b.ContactStatus === "Inactive") || String(a.Title).localeCompare(String(b.Title))), code, "") : ""}
   <div class="bar" style="margin-top:22px"><h2>Job history</h2><span class="count">${jobs.length}</span></div>${jobsTable(jobs, true)}
   <div class="bar" style="margin-top:22px"><h2>Quotes</h2><span class="count">${quotes.length}</span></div>${quotesTable(quotes, true)}`;
 }
@@ -1520,6 +1561,7 @@ function viewSite(){
     <td>${esc([a.Make, a.Model].filter(Boolean).join(" "))}</td><td class="mono">${esc(a.SerialNo || "")}</td><td>${esc(a.RatingSize || "")}</td><td>${esc(a.LocationOnSite || "")}</td>
     <td class="mono">${fmtDate(a.InstallDate)}</td><td>${warrantyPill(a.WarrantyEnd)}</td><td>${assetPill(a.AssetStatus)}</td></tr>`).join("")}
   </tbody></table>${assets.length ? "" : `<div class="empty">No equipment recorded — add switchboards, generators, UPS, A/C units and so on with <b>+ Add equipment</b></div>`}</div>
+  ${D.contacts ? contactsTable((D.contacts || []).filter(y => y.SiteCode === code).sort((a, b) => String(a.Title).localeCompare(String(b.Title))), x.CustomerCode, code) : ""}
   <div class="bar" style="margin-top:22px"><h2>Job history</h2><span class="count">${jobs.length}</span></div>${jobsTable(jobs, false)}
   <div class="bar" style="margin-top:22px"><h2>Quotes</h2><span class="count">${quotes.length}</span></div>${quotesTable(quotes, false)}`;
 }
@@ -1559,6 +1601,7 @@ function viewProducts(){
   </tbody></table>${rows.length ? "" : `<div class="empty">${all.length ? "No products match" : "No products yet — click <b>+ New product</b>, or import them with the setup kit"}</div>`}</div>`;
 }
 function bindCustomers(){
+  document.querySelectorAll("[data-newcont]").forEach(b => b.onclick = () => { const [c, si] = b.dataset.newcont.split("|"); openForm("cont", null, { CustomerCode:c, SiteCode:si || "" }); });
   const pq = $("#prodq"); if (pq) pq.oninput = () => { S.pq = pq.value; const pos = pq.selectionStart; render(); const n = $("#prodq"); n.focus(); n.setSelectionRange(pos, pos); };
   if ($("#prodshow")) $("#prodshow").onchange = e => { S.pshow = e.target.value; render(); };
   const sq = $("#supq"); if (sq) sq.oninput = () => { S.sq = sq.value; const pos = sq.selectionStart; render(); const n = $("#supq"); n.focus(); n.setSelectionRange(pos, pos); };
