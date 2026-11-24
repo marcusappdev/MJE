@@ -2757,7 +2757,11 @@ function bindSettings(){
    ===================================================================== */
 const JOB_TABS = [["details","Details"],["schedule","Schedule"],["time","Time"],["materials","Materials"],["notes","Notes & Photos"],["checklists","Checklists"],["safety","Safety"],["purchases","Purchases"],["invoice","Invoice"]];
 const J_FILTERS = [["open","Open"],["unscheduled","Unscheduled"],["Scheduled","Scheduled"],["In Progress","In progress"],["On Hold","On hold"],["overdue","Overdue"],["Completed","Completed"],["Invoiced","Invoiced"],["Cancelled","Cancelled"],["all","All"]];
-S.jf = { q:"", status:"open", type:"", division:"", team:"", branch:"", sup:"" };
+S.jf = { q:"", status:"open", type:"", division:"", team:"", branch:"", sup:"", sort:"new" };
+// Job Centre order. Newest = date received (job no. when the same day, or no date)
+const J_SORTS = [["new","Newest first"],["old","Oldest first"],["urgent","Most urgent"],["due","Due date"]];
+const byJobNo = (a, b) => String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true });
+const byNewest = (a, b) => (b.DateReceived || "").localeCompare(a.DateReceived || "") || byJobNo(a, b);
 const me = () => S.me?.Title || account?.name || "";
 const hoursBetween = (s, e) => { if (!s || !e) return 0; const [a, b] = s.split(":").map(Number), [c, d] = e.split(":").map(Number); let m = (c * 60 + d) - (a * 60 + b); if (m < 0) m += 1440; return Math.round(m / 60 * 100) / 100; };
 function roundBillable(h){
@@ -2822,7 +2826,8 @@ function viewJobs(){
   const match = j => f.status === "all" || (f.status === "open" ? isOpen(j) : f.status === "unscheduled" ? j._st === "New" : f.status === "overdue" ? overdue(j) : j._st === f.status);
   const by = j => (!f.type || j.JobType === f.type) && (!f.division || j.Division === f.division) && (!f.team || j.Team === f.team) && (!f.branch || j.Branch === f.branch) && (!f.sup || j.Supervisor === f.sup);
   const rows = jobs.filter(j => match(j) && by(j) && (!q || norm([j.Title, j.CustomerName, j.SiteName, j.Description, j.CustomerOrderNo, j.QuoteNo, j.LocationOnSite, j.LatestUpdate, j.PartsOnOrder, techsOn(j.Title).join(" ")].join(" ")).includes(q)))
-    .sort((a, b) => f.status === "overdue" ? a.DueDate.localeCompare(b.DueDate) : isOpen(a) && isOpen(b) ? byUrgency(a, b) : String(b.Title).localeCompare(String(a.Title), undefined, { numeric:true }));
+    .sort({ new: byNewest, old: (a, b) => byNewest(b, a), urgent: (a, b) => byUrgency(a, b) || byNewest(a, b),
+      due: (a, b) => (a.DueDate || "9999").localeCompare(b.DueDate || "9999") || byNewest(a, b) }[f.sort] || byNewest);
   const open = jobs.filter(isOpen), ready = jobs.filter(j => j._st === "Completed"), readyVal = ready.reduce((t, j) => t + unbilledValue(j).value, 0);
   const tile = (st, label, v, sub, alert) => `<div class="card kpi k-job ${alert ? "alert" : ""}" role="button" tabindex="0" data-jf="${st}"><div class="l">${label}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
   return `
@@ -2840,11 +2845,12 @@ function viewJobs(){
     ${[["division","All divisions",pickList("Divisions")],["team","All teams",pickList("Teams")],["branch","All branches",S.branch ? [] : branches()],
        ["sup","All supervisors",[...new Set(D.jobs.map(j => j.Supervisor).filter(Boolean))].sort()]].filter(([k, , o]) => o.length || f[k])
       .map(([k, all, o]) => `<select class="f" data-jsel="${k}" aria-label="${all}"><option value="">${all}</option>${[...new Set([...o, ...(f[k] ? [f[k]] : [])])].map(x => `<option ${x === f[k] ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`).join("")}
+    <select class="f" id="jsort" aria-label="Sort jobs">${J_SORTS.map(([v, l]) => `<option value="${v}" ${v === f.sort ? "selected" : ""}>${l}</option>`).join("")}</select>
     <span class="count">${rows.length} of ${jobs.length}</span></div>
   <div class="bar chips" style="display:flex;flex-wrap:wrap">${J_FILTERS.map(([v, l]) => `<button class="chip ${f.status === v ? "on" : ""}" data-jf="${v}">${l}</button>`).join("")}</div>
-  <div class="tablewrap"><table class="jobs"><thead><tr><th>Job</th><th>Customer · site</th><th>Description</th><th>Latest update</th><th>Type</th><th>Priority</th><th>Booked</th><th>Due</th><th>Status</th><th>Change</th></tr></thead><tbody>
+  <div class="tablewrap"><table class="jobs"><thead><tr><th>Job</th><th>Received</th><th>Customer · site</th><th>Description</th><th>Latest update</th><th>Type</th><th>Priority</th><th>Booked</th><th>Due</th><th>Status</th><th>Change</th></tr></thead><tbody>
   ${rows.map(j => { const nb = nextBooking.get(j.Title), techs = techsOn(j.Title), od = overdue(j);
-    return `<tr data-go="jobs/${encodeURIComponent(j.Title)}" tabindex="0"><td class="mono"><b>${esc(j.Title)}</b>${j.QuoteNo ? `<br><span class="count">${esc(j.QuoteNo)}</span>` : ""}</td>
+    return `<tr data-go="jobs/${encodeURIComponent(j.Title)}" tabindex="0"><td class="mono"><b>${esc(j.Title)}</b>${j.QuoteNo ? `<br><span class="count">${esc(j.QuoteNo)}</span>` : ""}</td><td class="mono">${fmtDate(j.DateReceived)}</td>
     <td><b>${esc(j.CustomerName || "")}</b>${j.SiteName ? `<br><span class="count">${esc(j.SiteName)}</span>` : ""}</td><td class="clip"><div>${esc(j.Description || "")}</div></td>
     <td class="clip"><div>${j._st === "On Hold" && j.OnHoldReason ? `<b>${esc(j.OnHoldReason)}</b>${j.PartsETA ? ` · ETA ${fmtDate(j.PartsETA)}` : ""}<br>` : ""}${esc(j.LatestUpdate || "")}${j.LatestUpdateDate ? ` <span class="count">${fmtDate(j.LatestUpdateDate)}</span>` : ""}</div></td>
     <td>${esc(j.JobType || "")}${j.Division ? `<br><span class="count">${esc(j.Division)}</span>` : ""}</td><td>${priPill(j.Priority)}</td>
@@ -3203,6 +3209,7 @@ function bindJobs(){
   document.querySelectorAll("[data-jf]").forEach(b => { const fn = () => { S.jf.status = b.dataset.jf; render(); }; b.onclick = fn; b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } }; });
   const jq = $("#jq"); if (jq) jq.oninput = () => { S.jf.q = jq.value; const pos = jq.selectionStart; render(); const n = $("#jq"); n.focus(); n.setSelectionRange(pos, pos); };
   if ($("#jtype")) $("#jtype").onchange = e => { S.jf.type = e.target.value; render(); };
+  if ($("#jsort")) $("#jsort").onchange = e => { S.jf.sort = e.target.value; render(); };
   document.querySelectorAll("[data-jsel]").forEach(el => el.onchange = () => { S.jf[el.dataset.jsel] = el.value; render(); });
   document.querySelectorAll("td.nogo").forEach(td => { td.onclick = e => e.stopPropagation(); td.onkeydown = e => e.stopPropagation(); });
   document.querySelectorAll("[data-qs]").forEach(s => s.onchange = () => { const j = jobByNo(s.dataset.qs); if (j && s.value) setJobStatus(j, s.value); s.value = ""; });
