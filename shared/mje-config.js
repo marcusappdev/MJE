@@ -85,5 +85,5 @@ const MJE_PREVIEW = ["mscully@concept.com.pg"];
    --------------------------------------------------------------------- */
 const MJE_ONLY = {
   safety:  [],
-  service: ["gpunaha@mjepng.com", "jrarupe@mjepng.com"]
+  service: ["gpunaha@mjepng.com", "jhrarupe@mjepng.com"]
 };
