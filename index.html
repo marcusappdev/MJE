@@ -882,7 +882,7 @@ function tbtCell(b, y, mi){
   return `<td><button class="mx mx-${cls}" ${act} title="${esc(tip)}">${label}</button></td>`;
 }
 function viewToolbox(tabs){
-  if (S.missing.includes("tbt")) return `<div class="bar"><h2>Toolbox Talks</h2></div>${tabs}<div class="banner err">The ${esc(CONFIG.LISTS.tbt)} list hasn't been set up on SharePoint yet. Run the toolbox talks setup script, then refresh this page.</div>`;
+  if (S.missing.includes("tbt")) return `<div class="bar"><h2>Toolbox Talks</h2></div>${tabs}<div class="banner err">The ${esc(CONFIG.LISTS.tbt)} list hasn't been set up on SharePoint yet. Run setup kit v2.9 (STEP 9), then refresh this page.</div>`;
   const f = S.filt.tbt, y = f.year, st = tbtStats(y), rows = sortRows(tbtLog(y), "tbt");
   const notReady = st.thisM.filter(([, m]) => !["held","sched"].includes(m.state));
   return `
@@ -912,7 +912,8 @@ function viewToolbox(tabs){
 /* ---- toolbox talk documents: ToolboxRecords library, one folder per TBT no.; RecordType column says what each file is ---- */
 let docQueue = [];
 async function tbtDrive(){ if (S.tbtDrive !== undefined) return S.tbtDrive; S.tbtDrive = await libraryDrive(CONFIG.LISTS.tbtdocs); return S.tbtDrive; }
-const docGuess = name => /attend|sign/i.test(name) ? "Attendance sheet" : /agenda|aob/i.test(name) ? "Agenda" : /\.pptx?$/i.test(name) ? "Presentation"
+const docGuess = name => { const m = /^TBT-\d{4}-\d+_([A-Za-z-]+)_/.exec(name), t = m && TBT_DOC.find(x => x.replace(/\s+/g, "-") === m[1]); return t || docGuessRaw(name); };
+const docGuessRaw = name => /attend|sign/i.test(name) ? "Attendance sheet" : /agenda|aob/i.test(name) ? "Agenda" : /\.pptx?$/i.test(name) ? "Presentation"
   : /info|flyer|sheet/i.test(name) ? "Information sheet" : /\.(jpe?g|png|heic|webp)$/i.test(name) ? "Photo" : "Other";
 const docSafe = n => String(n).replace(/["*:<>?/\\|#%~&{}]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 120);
 const docsHtml = () => `<fieldset><legend>Documents</legend><div class="docs" id="docList"></div><div class="docs" id="docQueue"></div>
@@ -936,7 +937,7 @@ async function loadDocs(title){
   if (!title) { el.innerHTML = ""; return; }
   el.innerHTML = `<span class="count">Loading documents…</span>`;
   try { const list = await listDocs(title);
-    if (list === null) { el.innerHTML = `<span class="count">The ${esc(CONFIG.LISTS.tbtdocs)} library isn't set up yet (run the toolbox talks setup script).</span>`; return; }
+    if (list === null) { el.innerHTML = `<span class="count">The ${esc(CONFIG.LISTS.tbtdocs)} library isn't set up yet (run setup kit v2.9, STEP 9).</span>`; return; }
     if (!el.isConnected) return;
     el.innerHTML = list.length ? list.map(x => `<span class="doc"><span class="ty">${esc(docType(x))}</span><a href="${esc(x.webUrl)}" target="_blank" rel="noopener">${esc(x.name)}</a></span>`).join("") : `<span class="count">No documents uploaded yet.</span>`;
   } catch(e){ el.innerHTML = `<span class="count">Couldn't read the documents: ${esc(e.message)}</span>`; }
