@@ -68,3 +68,22 @@ const MJE_APPS_ON = {
 };
 // Sign-in emails that can see a Hub set to "preview" (office staff only)
 const MJE_PREVIEW = ["mscully@concept.com.pg"];
+
+/* ---------------------------------------------------------------------
+   People who see ONE Hub only.  Put a sign-in email under the Hub they
+   should see; for them the other Hub is hidden from the header, and
+   opening its address takes them to their own Hub.  Being listed here
+   also lets them into that Hub while it is in "preview".
+     · Both Hubs      - not listed here (and on MJE_PREVIEW while the
+                        Service Hub is in preview), e.g. Mick
+     · Safety only    - everyone else while the Service Hub is in preview;
+                        list them under safety once it is switched "on"
+     · Service only   - list them under service
+   Hiding only, not security: SharePoint permissions still decide what
+   each person can read or change (MJE Owners can update every list).
+   Emails are not case sensitive. Separate them with commas.
+   --------------------------------------------------------------------- */
+const MJE_ONLY = {
+  safety:  [],
+  service: ["gpunaha@mjepng.com", "jrarupe@mjepng.com"]
+};
