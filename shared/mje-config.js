@@ -67,7 +67,7 @@ const MJE_APPS_ON = {
   service: "preview"
 };
 // Sign-in emails that can see a Hub set to "preview" (office staff only)
-const MJE_PREVIEW = ["mscully@concept.com.pg"];
+const MJE_PREVIEW = ["mscully@concept.com.pg", "mharro@mjepng.com"];   // Mick Harrison: both Hubs
 
 /* ---------------------------------------------------------------------
    People who see ONE Hub only.  Put a sign-in email under the Hub they
@@ -85,5 +85,6 @@ const MJE_PREVIEW = ["mscully@concept.com.pg"];
    --------------------------------------------------------------------- */
 const MJE_ONLY = {
   safety:  [],
-  service: ["gpunaha@mjepng.com", "jhrarupe@mjepng.com"]
+  service: ["purchasing@mjepng.com",   // Gabriella Punaha - shared Purchasing login until she has her own account
+            "jhrarupe@mjepng.com"]    // Jacqueline Rarupe
 };
