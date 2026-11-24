@@ -45,14 +45,22 @@ function mjeAppState(key){
   const v = String((typeof MJE_APPS_ON === "object" && MJE_APPS_ON) ? (MJE_APPS_ON[key] ?? "on") : "on").trim().toLowerCase();
   return v === "off" || v === "preview" ? v : "on";
 }
+const mjeMe = () => String((typeof account !== "undefined" && account?.username) || "").trim().toLowerCase();
+const mjeListed = (list, me) => !!me && (Array.isArray(list) ? list : []).some(e => String(e).trim().toLowerCase() === me);
+// The one Hub this person is limited to (MJE_ONLY in mje-config.js), or "" for no limit
+function mjeOnlyHub(){
+  const me = mjeMe(), only = (typeof MJE_ONLY === "object" && MJE_ONLY) || {};
+  return Object.keys(only).find(k => mjeListed(only[k], me)) || "";
+}
 // Can the signed-in person use this Hub?  (`account` is set by initAuth; DEMO mode sees everything)
 function mjeAppAllowed(key){
   const st = mjeAppState(key);
-  if (st === "on") return true;
   if (st === "off") return false;
   if (String(MJE_TENANT.CLIENT_ID).startsWith("<<")) return true;
-  const me = String(account?.username || "").trim().toLowerCase();
-  return !!me && (typeof MJE_PREVIEW !== "undefined" ? MJE_PREVIEW : []).some(e => String(e).trim().toLowerCase() === me);
+  const only = mjeOnlyHub();
+  if (only) return only === key;
+  if (st === "on") return true;
+  return mjeListed(typeof MJE_PREVIEW !== "undefined" ? MJE_PREVIEW : [], mjeMe());
 }
 const mjeApp = key => MJE_APPS.find(a => a.key === key);
 // Header app switcher: Safety Hub | Service Hub.  Shows only the Hubs this person can use;
@@ -71,11 +79,14 @@ function mjeAppColour(key){
 }
 function mjeRenderApps(current){ const el = document.getElementById("apps"); if (el) el.outerHTML = mjeAppSwitcher(current); }
 // Page shown when a Hub is switched off (or in preview and this person isn't listed)
+// People limited to one Hub (MJE_ONLY) are taken straight to it.
 function mjeUnavailable(key){
-  const me = mjeApp(key), other = MJE_APPS.filter(a => a.key !== key && mjeAppAllowed(a.key));
+  const me = mjeApp(key), other = MJE_APPS.filter(a => a.key !== key && mjeAppAllowed(a.key)), only = mjeOnlyHub();
+  if (only && only !== key && other.length === 1){ location.replace(other[0].href); return `<div class="empty">Opening the ${esc(other[0].name)}…</div>`; }
   return `<div class="card signin"><div class="full">${mjeLogoFull()}</div>
     <h2>${esc(me?.name || "This Hub")} isn't available yet</h2>
-    <p>The ${esc(BRAND.SHORT)} office hasn't switched it on. Please check back later.</p>
+    <p>The ${esc(BRAND.SHORT)} office hasn't switched it on${mjeMe() ? " for you" : ""}. Please check back later.</p>
+    ${mjeMe() ? `<p class="count">You're signed in as <b>${esc(mjeMe())}</b>.</p>` : ""}
     ${other.map(a => `<a class="btn primary" href="${a.href}">Go to the ${esc(a.name)}</a>`).join(" ")}</div>`;
 }
 
